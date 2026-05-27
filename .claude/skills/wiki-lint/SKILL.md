@@ -1,25 +1,31 @@
 ---
 name: wiki-lint
-description: Health-check the LLM Wiki — surface contradictions, stale claims, orphan pages, missing entities, broken wikilinks, and topic gaps. Produces a dated lint report under the vault and logs it. Does NOT fix issues unilaterally — surfaces them for user direction. Triggers lint the wiki, wiki health check, find orphans, find contradictions, audit the wiki, what's missing in the wiki, vault cleanup, fix broken links.
+description: Health-check the LLM Wiki per the schema in CLAUDE.md. Surfaces contradictions, stale claims, orphan pages, missing entities, broken wikilinks, and topic gaps. Produces a dated lint report at the vault root and logs it. Does NOT fix issues unilaterally — surfaces them for user direction. Tells the user the wiki is empty if it has not been bootstrapped. Triggers lint the wiki, wiki health check, find orphans, find contradictions, audit the wiki, what's missing in the wiki, vault cleanup, fix broken links.
 ---
 
 # /wiki-lint
 
-Run a full wiki health pass per `CLAUDE.md`. Output: dated lint report page + `log.md` entry. **Surface issues, do NOT fix them** unless I direct.
+Run a full wiki health pass per `CLAUDE.md`. **Surface issues, do NOT fix them** unless I direct.
+
+## Step 0 — Bootstrap check
+
+- If `wiki/` does not exist OR is empty → tell me "Wiki is empty. Nothing to lint. Ingest a source first." Exit.
+- If `index.md` is missing → create a starter (see `/wiki-ingest` Step 0) before scanning, so the report has somewhere to link from.
+- If `log.md` is missing → create a starter so this lint pass gets logged.
 
 ## Inputs
 
-- `$ARGUMENTS` — optional scope: `entities`, `orphans`, `links`, `contradictions`, `gaps`, `stale`, or empty for all.
+`$ARGUMENTS` — optional scope: `entities`, `orphans`, `links`, `contradictions`, `gaps`, `stale`, or empty for all.
 
 ## Checks
 
-1. **Contradictions.** Scan pages for claims about the same entity/concept that disagree. Flag with: both page links, the disagreeing quotes, suggested resolution (which source is newer / more authoritative).
-2. **Stale claims.** Pages where `updated:` is older than the most recent ingest that touched the same entity/concept. Likely missed a cascade update.
-3. **Orphan pages.** Run a grep for inbound `[[Page]]` references across the vault. Any page with zero inbound links from another wiki page = orphan. (`index.md` linking it counts.)
-4. **Missing entities.** Concepts / people / products mentioned ≥3 times across the wiki in plain text (not as wikilinks) but lacking their own page. Promote candidates.
-5. **Broken wikilinks.** `[[Page Name]]` pointing at a file that doesn't exist. Suggest fix: rename, create stub, or remove the link.
+1. **Contradictions.** Pages with disagreeing claims about the same entity/concept. Flag with: both page links, the disagreeing quotes, suggested resolution (which source is newer / more authoritative).
+2. **Stale claims.** Pages whose `updated:` is older than the most recent ingest touching the same entity. Likely missed a cascade update.
+3. **Orphan pages.** Grep inbound `[[Page]]` references across the vault. Any page with zero inbound links from another wiki page = orphan. (`index.md` counts as inbound.)
+4. **Missing entities.** Concepts / people / products mentioned ≥3× in plain text (not as wikilinks) but lacking their own page.
+5. **Broken wikilinks.** `[[Page Name]]` pointing at a non-existent file.
 6. **Topic gaps.** Topics with high mention count but thin coverage (1-2 sources). Suggest a web search or source to ingest.
-7. **Raw source coverage.** Files in `raw/` not referenced by any wiki page = unprocessed sources. List them.
+7. **Raw source coverage.** Files in `raw/` not referenced by any wiki page → unprocessed sources. List them.
 
 ## Output
 
@@ -28,7 +34,7 @@ Run a full wiki health pass per `CLAUDE.md`. Output: dated lint report page + `l
    ```
    ## [YYYY-MM-DD] lint | N issues — see [[lint-YYYY-MM-DD]]
    ```
-3. **Summarize in chat**: counts per category, top 5 highest-severity items, and ask: "want me to start fixing? which categories first?"
+3. **Summarize in chat:** counts per category, top 5 highest-severity items, then ask: "Want me to start fixing? Which categories first?"
 
 ## Hard rules
 

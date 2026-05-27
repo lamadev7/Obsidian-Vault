@@ -1,39 +1,61 @@
 ---
 name: wiki-query
-description: Answer a question against the LLM Wiki by reading index.md first, drilling into candidate pages, and synthesizing a cited answer with wikilinks. Optionally file the answer back as a new wiki page so explorations compound instead of evaporating into chat. Triggers ask the wiki, what does the wiki say, query the wiki, search my notes, look up in the wiki, synthesize from notes, what do I have on X.
+description: Answer a question against the LLM Wiki per the schema in CLAUDE.md. Reads index.md first, drills into candidate pages, synthesizes a cited answer with wikilinks. Optionally files the answer back as a new wiki page so explorations compound. If the wiki is empty / not yet bootstrapped, tells the user to ingest a source first. Triggers ask the wiki, what does the wiki say, query the wiki, search my notes, look up in the wiki, synthesize from notes, what do I have on X.
 ---
 
 # /wiki-query
 
-Run the query flow per `CLAUDE.md`. Input: a question. Output: synthesized answer with citations + optional file-back as a new wiki page.
+Run the query flow per `CLAUDE.md`.
 
-## Inputs
+## Step 0 — Bootstrap check
 
-- `$ARGUMENTS` — the question. If empty, ask me what to query.
+- If `index.md` does not exist OR `wiki/` is empty → tell me: "The wiki is empty. Drop a source into `raw/` and run `/wiki-ingest` first." Exit.
+- If `log.md` does not exist but `index.md` does → create `log.md` with the starter header before proceeding (so the query gets logged).
 
-## Flow
+## Step 1 — Question
 
-1. **Read `index.md` first.** Always. It's the catalog.
-2. **Identify candidate pages.** From `index.md` summaries, pick pages likely to contain the answer. Open them.
-3. **If the wiki is thin on this topic**, say so explicitly and ask whether to run a web search + ingest first (don't just hallucinate).
-4. **Synthesize the answer.** Every claim must be backed by a `[[wikilink]]` to the source wiki page (and through it, to the raw source). No uncited claims.
-5. **Format the answer to fit the question:**
-   - Conceptual / comparison → markdown with a comparison table
-   - "How do I do X" → numbered steps
-   - "What does X think about Y" → quoted excerpts with citations
-   - Quantitative → chart if useful (note: ask me before writing chart code)
-6. **Ask: "File this back as a wiki page?"** If yes:
-   - Pick the right topic folder.
-   - Write the page with frontmatter `type: comparison | analysis | overview | faq`, `sources: [[a]], [[b]]`, `updated: <today>`.
-   - Wikilink it from `index.md` and from the parent topic page if one exists.
-7. **Append to `log.md`:**
-   ```
-   ## [YYYY-MM-DD] query | <question one-liner> — answered from [[a]], [[b]]; filed as [[c]] (if applicable)
-   ```
+`$ARGUMENTS` = the question. If empty, ask me what to query.
+
+## Step 2 — Read the catalog first
+
+Read `index.md`. Always. It's the catalog and it's where you find what wiki pages exist.
+
+## Step 3 — Identify candidate pages
+
+From `index.md` summaries, pick pages likely to contain the answer. Open them.
+
+If coverage looks thin → say so explicitly and ask whether to run a web search + ingest before answering. Don't hallucinate.
+
+## Step 4 — Synthesize
+
+Every claim must be backed by a `[[wikilink]]` to the wiki page (and through it, to the raw source). No uncited claims.
+
+Format to fit the question:
+- Conceptual / comparison → markdown with a comparison table
+- "How do I do X" → numbered steps
+- "What does X think about Y" → quoted excerpts with citations
+- Quantitative → chart if useful (ask before writing chart code)
+
+## Step 5 — File-back prompt
+
+Ask: **"File this back as a wiki page?"**
+
+If yes:
+- Pick the right topic folder.
+- Write the page with frontmatter (`type: comparison | analysis | overview | faq`, `sources:`, `updated:`).
+- Wikilink it from `index.md` and from the parent topic page if one exists.
+
+## Step 6 — Log
+
+Append to `log.md`:
+
+```
+## [YYYY-MM-DD] query | <question one-liner> — answered from [[a]], [[b]]; filed as [[c]] (if applicable)
+```
 
 ## Hard rules
 
-- **Index-first.** Never grep raw/ blind — read `index.md` first to know what wiki pages exist.
+- **Index-first.** Never grep `wiki/` blind. Read `index.md` first to know what pages exist.
 - **Cite or refuse.** If you can't find a wiki page backing a claim, either say "the wiki does not cover this" or run an explicit web search + ingest cycle.
 - **File-back is opt-in but encouraged.** Default to asking, not assuming.
-- **No silent edits.** Even if the answer is just a quick chat response, log it if it referenced wiki pages.
+- **Always log.** Even quick chat answers that referenced wiki pages get a log entry.

@@ -4,7 +4,7 @@ An implementation of Karpathy's [*LLM Wiki*](raw/karpathy-llm-wiki.md) pattern: 
 
 You only ever need to say:
 
-- **`/wiki-ingest`** — process a new source dropped into `raw/`
+- **`/wiki-ingest`** — process a new source
 - **`/wiki-query <question>`** — answer from the wiki, optionally file the answer back
 - **`/wiki-lint`** — health-check the wiki
 
@@ -12,91 +12,57 @@ Natural-language equivalents work too ("ingest this", "ask the wiki", "audit the
 
 ---
 
-## Three layers
+## Three layers (auto-created on first ingest)
 
 | Layer | Location | Owner | Mutable? |
 |---|---|---|---|
-| Schema + meta | `/` (`CLAUDE.md`, `index.md`, `log.md`) | co-evolved | yes |
+| Schema | `CLAUDE.md` | co-evolved | yes |
 | Raw sources | `raw/` | you drop, no one edits | **immutable** |
 | Wiki | `wiki/` | LLM | yes (LLM writes) |
+| Catalog | `index.md` | LLM | yes |
+| Log | `log.md` | LLM (append-only) | yes |
+
+You pre-create **nothing**. The first `/wiki-ingest` bootstraps `raw/`, `wiki/`, `index.md`, and `log.md` if they don't exist. Topic subfolders inside `wiki/` emerge from your source content — no fixed list.
 
 ---
 
-## Quick start
+## Setup
 
-1. Open the vault in Claude Code at the vault root.
-2. Drop a source (article, paper, transcript, web clip) into `raw/`.
-3. Type `/wiki-ingest`.
-4. Claude reads the source, summarizes back to you, writes a source-summary page, updates affected entity/concept pages, updates `index.md`, appends `log.md`. One ingest typically touches 5–15 pages.
-5. Ask questions with `/wiki-query` — Claude reads `index.md` first, synthesizes a cited answer, asks whether to file it back as a new wiki page.
-6. Run `/wiki-lint` periodically to surface contradictions, orphans, broken links, missing entities, gaps.
+Copy these **4 files** into your Obsidian vault root (or any directory of markdown):
+
+```
+CLAUDE.md
+.claude/skills/wiki-ingest/SKILL.md
+.claude/skills/wiki-query/SKILL.md
+.claude/skills/wiki-lint/SKILL.md
+```
+
+That's the entire deliverable. Open the vault in Claude Code and you're ready.
 
 ---
 
-## Setup from scratch
+## Use
 
-### 1. Scaffold
-
-From the vault root:
-
-```bash
-mkdir -p raw wiki .claude/skills/wiki-ingest .claude/skills/wiki-query .claude/skills/wiki-lint
-```
-
-If you have existing topic notes, move them under `wiki/`.
-
-### 2. Write the schema (`CLAUDE.md`)
-
-`CLAUDE.md` at the vault root is what Claude auto-loads every session. It defines:
-
-- The three layers and where they live
-- Page conventions (frontmatter, wikilinks, citations)
-- The three operations (Ingest, Query, Lint)
-- Hard rules (raw is immutable, no orphan pages, every edit logs)
-
-Copy `CLAUDE.md` from this repo as a template and adapt it to your domain.
-
-### 3. Create `index.md` and `log.md`
-
-`index.md` — content catalog, one line per wiki page, organized by topic. Updated on every ingest.
-
-`log.md` — append-only chronological log. Every operation adds one entry with a parseable prefix:
-
-```
-## [YYYY-MM-DD] ingest | <title> — touched N pages: [[a]], [[b]], ...
-## [YYYY-MM-DD] query  | <question> — answered from [[a]], [[b]]; filed as [[c]]
-## [YYYY-MM-DD] lint   | N issues — see [[lint-YYYY-MM-DD]]
-```
-
-### 4. Add the three slash skills
-
-Skills live under `.claude/skills/<name>/SKILL.md`. Each file starts with YAML frontmatter:
-
-```yaml
----
-name: wiki-ingest
-description: <one-paragraph description with trigger keywords so plain English routes here too>
----
-```
-
-…followed by the operation flow. Copy the three `SKILL.md` files from `.claude/skills/` in this repo as templates.
-
-The `description` field matters — Claude uses it to match trigger phrases like "ingest this" or "audit the wiki," so users don't need to remember the slash command.
-
-### 5. First ingest
-
-Drop the Karpathy source into `raw/`, then run `/wiki-ingest`. Claude will build the first source-summary, entity, and concept pages — that's the loop working end-to-end.
+1. Drop a source (article, paper, transcript, web clip) into the vault root. The first ingest will move it into `raw/`.
+2. Type `/wiki-ingest`. Claude:
+   - Bootstraps `raw/`, `wiki/`, `index.md`, `log.md` if first run
+   - Reads the source, summarizes back to you (3–7 bullets)
+   - Writes a source-summary page in a topic folder picked from the content
+   - Cascades to entity/concept pages with bidirectional wikilinks
+   - Updates `index.md`, appends `log.md`
+3. Ask questions with `/wiki-query` — Claude reads `index.md` first, synthesizes a cited answer, asks whether to file it back as a new wiki page.
+4. Run `/wiki-lint` periodically — surfaces contradictions, orphans, broken links, missing entities, gaps. Doesn't fix without your direction.
 
 ---
 
 ## Tips
 
-- **One source at a time, stay involved.** Karpathy's recommendation. The summary discussion catches misclassifications early.
-- **File queries back aggressively.** Any synthesis only living in chat is wasted. The wiki compounds when explorations stick.
+- **One source at a time, stay involved.** The summary discussion catches misclassifications early.
+- **File queries back aggressively.** Synthesis that lives only in chat is wasted.
 - **Lint monthly.** Catch orphans and stale claims before they decay further.
-- **Don't write wiki pages by hand.** Let the LLM do it. If you must edit, do it through Claude in dialogue so it logs and propagates correctly.
+- **Don't write wiki pages by hand.** Let the LLM do it so it logs and propagates correctly.
 - **Use Obsidian's graph view** to see which pages are hubs and which are orphans.
-- **Treat `CLAUDE.md` as a living document.** When a pattern needs enforcing consistently, add it to the schema instead of repeating yourself per session.
+- **Treat `CLAUDE.md` as living.** When a pattern needs enforcing consistently, add it to the schema instead of repeating yourself.
 
 ---
 
