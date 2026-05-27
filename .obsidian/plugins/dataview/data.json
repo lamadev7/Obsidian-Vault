@@ -1,0 +1,9 @@
+{
+  "enableDataviewJs": true,
+  "enableInlineDataviewJs": true,
+  "prettyRenderInlineFields": true,
+  "taskCompletionTracking": true,
+  "taskCompletionUseEmojiShorthand": false,
+  "taskCompletionText": "completion",
+  "warnOnEmptyResult": true
+}

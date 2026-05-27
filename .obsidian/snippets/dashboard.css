@@ -1,0 +1,238 @@
+/* ================================================
+   DASHBOARD THEME — glassmorphism + gradients
+   Scoped to notes with cssclasses: [dashboard]
+   ================================================ */
+
+.dashboard {
+  --card-radius: 14px;
+  --card-blur: 14px;
+  --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --gradient-4: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  --gradient-5: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  --gradient-6: linear-gradient(135deg, #30cfd0 0%, #330867 100%);
+}
+
+/* Page background — soft animated gradient */
+.dashboard .markdown-preview-view,
+.dashboard .markdown-source-view {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(102, 126, 234, 0.08), transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(240, 147, 251, 0.08), transparent 50%),
+    var(--background-primary);
+}
+
+/* H1 — gradient text */
+.dashboard h1 {
+  background: var(--gradient-1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  border: none;
+}
+
+/* H2 — accent bar + spacing */
+.dashboard h2 {
+  position: relative;
+  padding-left: 14px;
+  margin-top: 36px;
+  font-weight: 700;
+  border: none;
+}
+.dashboard h2::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 4px; height: 70%;
+  background: var(--gradient-1);
+  border-radius: 4px;
+}
+
+/* HR — fade line */
+.dashboard hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--background-modifier-border), transparent);
+  margin: 28px 0;
+}
+
+/* Dataview tables — glass card */
+.dashboard .dataview.table-view-table,
+.dashboard table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  background: var(--background-secondary);
+  backdrop-filter: blur(var(--card-blur));
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+.dashboard table th {
+  background: var(--background-modifier-hover);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 12px 16px;
+}
+.dashboard table td {
+  padding: 12px 16px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.dashboard table tr:hover td {
+  background: var(--background-modifier-hover);
+  transition: background 0.2s;
+}
+
+/* Progress bars — gradient + glow + animation */
+.dashboard progress {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 10px;
+  height: 14px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+}
+.dashboard progress::-webkit-progress-bar {
+  background: var(--background-modifier-border);
+  border-radius: 10px;
+}
+.dashboard progress::-webkit-progress-value {
+  background: var(--gradient-1);
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(102, 126, 234, 0.5);
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dashboard progress::-moz-progress-bar {
+  background: var(--gradient-1);
+  border-radius: 10px;
+}
+
+/* Stat cards — see Dashboard.md cards block */
+.dash-card {
+  flex: 1;
+  min-width: 150px;
+  position: relative;
+  padding: 18px 20px;
+  border-radius: var(--card-radius);
+  background: var(--background-secondary);
+  backdrop-filter: blur(var(--card-blur));
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.04),
+    0 8px 24px rgba(0,0,0,0.06);
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  cursor: default;
+}
+.dash-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--card-gradient, var(--gradient-1));
+}
+.dash-card::after {
+  content: "";
+  position: absolute;
+  top: -40%; right: -20%;
+  width: 140px; height: 140px;
+  background: var(--card-gradient, var(--gradient-1));
+  opacity: 0.08;
+  border-radius: 50%;
+  filter: blur(20px);
+}
+.dash-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 4px 12px rgba(0,0,0,0.08),
+    0 16px 40px rgba(0,0,0,0.12);
+}
+.dash-card .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.65;
+  font-weight: 600;
+}
+.dash-card .value {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-top: 6px;
+  background: var(--card-gradient, var(--gradient-1));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.dash-card .delta {
+  font-size: 12px;
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+/* Big hero progress card */
+.dash-hero {
+  padding: 24px;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(102, 126, 234, 0.12), rgba(118, 75, 162, 0.12)),
+    var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  margin: 16px 0;
+}
+.dash-hero .hero-label {
+  font-size: 13px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dash-hero .hero-value {
+  font-size: 48px;
+  font-weight: 800;
+  background: var(--gradient-1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+  margin: 8px 0;
+}
+.dash-hero progress {
+  height: 18px;
+  width: 100%;
+}
+
+/* Task lists — checkbox restyling */
+.dashboard .task-list-item {
+  padding: 4px 0;
+}
+.dashboard .task-list-item-checkbox {
+  accent-color: #667eea;
+}
+
+/* Pulse animation for live indicator */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.dash-live {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: #43e97b;
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 8px #43e97b;
+}
