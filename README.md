@@ -28,20 +28,19 @@ You pre-create **nothing**. The first `/wiki-ingest` bootstraps `raw/`, `wiki/`,
 
 ## Setup
 
-Copy these **4 files** into your Obsidian vault root (or any directory of markdown):
+Run these steps from your vault root.
 
+### Step 1 — Create the three layer folders
+
+```bash
+mkdir -p raw wiki output
 ```
-CLAUDE.md
-.claude/skills/wiki-ingest/SKILL.md
-.claude/skills/wiki-query/SKILL.md
-.claude/skills/wiki-lint/SKILL.md
-```
 
-That's the entire deliverable. Open the vault in Claude Code and you're ready.
+### Step 2 — Move existing notes into `wiki/`
 
-### Get the files
+Skip if your vault is empty. Otherwise, in Obsidian (or Finder/Explorer), **drag and drop all your existing files and folders into the `wiki/` folder** so the LLM-owned layer is properly nested.
 
-Run this from your vault root:
+### Step 3 — Pull `CLAUDE.md` + the three skill files
 
 ```bash
 mkdir -p .claude/skills/wiki-ingest .claude/skills/wiki-query .claude/skills/wiki-lint
@@ -52,12 +51,16 @@ curl -fsSL $BASE/.claude/skills/wiki-query/SKILL.md   -o .claude/skills/wiki-que
 curl -fsSL $BASE/.claude/skills/wiki-lint/SKILL.md    -o .claude/skills/wiki-lint/SKILL.md
 ```
 
-Or browse them on GitHub and copy by hand:
+Or grab the files manually from GitHub:
 
 - [CLAUDE.md](https://github.com/lamadev7/my-second-brain/blob/main/CLAUDE.md)
 - [.claude/skills/wiki-ingest/SKILL.md](https://github.com/lamadev7/my-second-brain/blob/main/.claude/skills/wiki-ingest/SKILL.md)
 - [.claude/skills/wiki-query/SKILL.md](https://github.com/lamadev7/my-second-brain/blob/main/.claude/skills/wiki-query/SKILL.md)
 - [.claude/skills/wiki-lint/SKILL.md](https://github.com/lamadev7/my-second-brain/blob/main/.claude/skills/wiki-lint/SKILL.md)
+
+### Step 4 — Restart Claude Code
+
+Exit (`Ctrl-D` or `/exit`) and re-open Claude in this directory so it picks up `CLAUDE.md` and registers the three new skills. The first `/wiki-ingest` is now one drop-and-type away.
 
 ---
 
