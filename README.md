@@ -39,6 +39,26 @@ CLAUDE.md
 
 That's the entire deliverable. Open the vault in Claude Code and you're ready.
 
+### Get the files
+
+Run this from your vault root:
+
+```bash
+mkdir -p .claude/skills/wiki-ingest .claude/skills/wiki-query .claude/skills/wiki-lint
+BASE=https://raw.githubusercontent.com/lamadev7/my-second-brain/main
+curl -fsSL $BASE/CLAUDE.md                            -o CLAUDE.md
+curl -fsSL $BASE/.claude/skills/wiki-ingest/SKILL.md  -o .claude/skills/wiki-ingest/SKILL.md
+curl -fsSL $BASE/.claude/skills/wiki-query/SKILL.md   -o .claude/skills/wiki-query/SKILL.md
+curl -fsSL $BASE/.claude/skills/wiki-lint/SKILL.md    -o .claude/skills/wiki-lint/SKILL.md
+```
+
+Or browse them on GitHub and copy by hand:
+
+- [CLAUDE.md](https://github.com/lamadev7/my-second-brain/blob/main/CLAUDE.md)
+- [.claude/skills/wiki-ingest/SKILL.md](https://github.com/lamadev7/my-second-brain/blob/main/.claude/skills/wiki-ingest/SKILL.md)
+- [.claude/skills/wiki-query/SKILL.md](https://github.com/lamadev7/my-second-brain/blob/main/.claude/skills/wiki-query/SKILL.md)
+- [.claude/skills/wiki-lint/SKILL.md](https://github.com/lamadev7/my-second-brain/blob/main/.claude/skills/wiki-lint/SKILL.md)
+
 ---
 
 ## Use
