@@ -1,0 +1,53 @@
+# ---- secrets ----
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+id_dsa
+id_ecdsa
+*.ppk
+*credentials*
+*secret*
+.npmrc
+.pypirc
+.netrc
+service-account*.json
+*service_account*.json
+firebase-adminsdk*.json
+gcp-key*.json
+kubeconfig
+*.kubeconfig
+.aws/
+.ssh/
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# ---- obsidian local state (paths / workspace layout leak personal info) ----
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/.DS_Store
+.obsidian/graph.json
+
+# ---- node / python build artifacts ----
+node_modules/
+dist/
+build/
+.venv/
+__pycache__/
+*.pyc
+
+# ---- claude / local agent state ----
+.claude/local/

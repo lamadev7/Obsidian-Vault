@@ -1,3 +1,11 @@
+---
+type: legacy-note
+tags: [frontend, architecture, react, nextjs]
+sources: []
+updated: 2026-05-27
+note: Pre-schema hand-written page. Not yet integrated with raw/ sources or [[index]]. Re-ingest as a wiki page (with proper citations + wikilinks) when relevant raw sources are added.
+---
+
 # Large-Scale React/Next.js Folder Structure
 
 Feature-first + shared layer. Scale to 100+ devs. App Router assumed.

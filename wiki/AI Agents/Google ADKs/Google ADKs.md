@@ -1,4 +1,9 @@
 ---
+type: legacy-note
+tags: [ai-agents, google-adk]
+sources: []
+updated: 2026-05-27
+note: Pre-schema hand-written page. Not yet integrated with raw/ sources or [[index]]. Re-ingest as a wiki page (with proper citations + wikilinks) when relevant raw sources are added.
 cssclasses:
   - wide-page
   - wide
