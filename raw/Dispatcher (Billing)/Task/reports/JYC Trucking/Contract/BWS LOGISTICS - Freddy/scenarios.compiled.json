@@ -1,0 +1,843 @@
+{
+  "scenarios": [
+    {
+      "scenario_name": "Auto-Approve Tariff-Rated Chargesets on Load Completion",
+      "scenario_description": "Auto-approve charge sets for BWS Logistics import drayage loads when the load is completed, all line items are from the approved BWS charge list at standard rates, all charges are tariff-rated (Base Price, Pre-Pull, Chassis), there are no off-menu charges, no off-rate amounts, no duplicate charges, no undefined 'other' lines, and no hand-entered charges that should be tariff-rated. Bill-only jobs and hand-entered charges (Warehouse Storage, Transload, Detention, Heavy Container Fee) are routed to manual review. The 'other' $6 charge is never auto-approved.",
+      "scenario_category": "charge_approval",
+      "executor_type": "BILLING_AGENT",
+      "trigger_events": [
+        "LOAD_COMPLETED",
+        "CHARGE_PRICING_ADDED"
+      ],
+      "monitoring_events": [],
+      "trigger_conditions": {},
+      "execution_plan": [
+        {
+          "step_id": 0,
+          "description": "Search for the load to get full load details including type, status, and customer",
+          "tool": "search-loads",
+          "parameters": {
+            "searchTerm": "{{reference_number}}",
+            "fieldsToReturn": [
+              "_id",
+              "reference_number",
+              "type_of_load",
+              "status",
+              "callerName",
+              "driverOrder",
+              "documents"
+            ]
+          },
+          "depends_on": null,
+          "condition": null,
+          "base_entity_type": null
+        },
+        {
+          "step_id": 1,
+          "description": "Get charge list for the load to inspect all chargesets and their line items",
+          "tool": "get-charge-list",
+          "parameters": {
+            "loadNumbers": [
+              "{{reference_number}}"
+            ]
+          },
+          "depends_on": [
+            0
+          ],
+          "condition": "ALL of the following must be true from Step 0: (1) callerName contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'. (2) Load must be in COMPLETED status. If not: STOP, return CONDITION_NOT_MET 'Load is not completed yet'. (3) type_of_load must be 'IMPORT'. If type_of_load is 'BILL_ONLY': STOP, return CONDITION_NOT_MET 'Bill-only jobs require manual review \u2014 hand-entered charges not eligible for auto-approval'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 2,
+          "description": "Approve all eligible chargesets that pass all BWS validation rules",
+          "tool": "approve-chargesets",
+          "parameters": {
+            "chargeSetIds": "{{eligible_chargeset_ids}}",
+            "loadId": "{{0._id}}"
+          },
+          "depends_on": [
+            0,
+            1
+          ],
+          "condition": "For EACH chargeset from Step 1 with status DRAFT or UNAPPROVED, validate ALL of the following. If ANY fails for a chargeset, exclude it and route to manual review:\n1. Base Price charge must be present in the default chargeset (isDefault=true) and must be tariff-rated (chargeType in [CUSTOMER_RATES, DYNAMIC_PRICING, SYSTEM_GENERATED, PROFILE_RATES, ZIPCODE_RATES, CITYSTATE_RATES, EDI_204]).\n2. There must be NO separate 'Fuel Surcharge' or 'Fuel' line item \u2014 BWS line haul is all-in. If a Fuel Surcharge line exists: exclude chargeset, flag for review as data error.\n3. Every charge name must be one of: 'Base Price', 'Pre-Pull', 'Chassis', 'Yard Storage', 'Empty Load Storage', 'Port Detention', 'Delivery Detention', 'Heavy Container Fee', 'Warehouse Storage', 'Transload'. Any charge not in this list is off-menu \u2014 exclude chargeset.\n4. No charge name may contain 'other' (case-insensitive). If an 'other' line exists: exclude chargeset.\n5. No duplicate charges (no two charges with the same name in the same chargeset).\n6. Only tariff-rated charges may be auto-approved: Base Price, Pre-Pull, Chassis. These must have chargeType in [CUSTOMER_RATES, DYNAMIC_PRICING, SYSTEM_GENERATED, PROFILE_RATES, ZIPCODE_RATES, CITYSTATE_RATES, EDI_204]. If any of these are hand-entered (chargeType = 'MANUALLY_CHANGED'), exclude chargeset \u2014 this signals a tariff gap.\n7. Hand-entered charges (Warehouse Storage, Transload, Port Detention, Delivery Detention, Heavy Container Fee) must NOT be present on import drayage chargesets being auto-approved. If present, exclude chargeset \u2014 these require manual review until tariff carries them.\n8. Rate validation for tariff-rated charges: Base Price ~$540, Pre-Pull ~$125, Chassis ~$40. If any amount deviates significantly from standard rate, exclude chargeset.\n9. Time-based charges (Yard Storage, Empty Load Storage) must have quantity from system dwell tracking (chargeType not MANUALLY_CHANGED for unit count). If hand-entered quantity, exclude chargeset.\nIf no chargesets pass all validations: STOP, return CONDITION_NOT_MET 'No chargesets eligible for auto-approval \u2014 all routed to manual review'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 3,
+          "description": "Fetch exception template for auto-approval blocked",
+          "tool": "get_exception_template",
+          "parameters": {
+            "exception_type": "Charge Approval Blocked",
+            "request_type": "PRICING_AND_BILLING"
+          },
+          "depends_on": [
+            2
+          ],
+          "condition": "Step 2 returned CONDITION_NOT_MET or one or more chargesets were excluded from approval due to validation failures",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 4,
+          "description": "Log exception for chargesets that failed validation and were routed to manual review",
+          "tool": "create-ai-request-log",
+          "parameters": {
+            "agentName": "BILLING_AGENT",
+            "status": "AI_REQUESTED",
+            "category": "BWS Auto-Approval Blocked",
+            "exceptionType": "Charge Approval Blocked",
+            "requestType": "PRICING_AND_BILLING",
+            "exceptionDetail": "One or more BWS chargesets could not be auto-approved. Reasons may include: off-menu charge, off-rate amount, 'other' line present, hand-entered charge that should be tariff-rated, duplicate charge, Fuel Surcharge line present (BWS is all-in), or hand-entered detention/storage quantity. Routed to manual review.",
+            "requestContext": "Load {{reference_number}}, Customer: BWS Logistics, type: IMPORT drayage.",
+            "entities": [
+              {
+                "entityType": "LOAD",
+                "entityId": "{{0._id}}",
+                "entityName": "{{reference_number}}"
+              }
+            ]
+          },
+          "depends_on": [
+            3
+          ],
+          "condition": "Step 3 succeeded (exception template fetched)",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 5,
+          "description": "Post exception to channel via Captain",
+          "tool": "captain_post",
+          "parameters": {
+            "ai_log_id": "{{4._id}}",
+            "channel_name": "Exceptions-Handling",
+            "message": "Load {{reference_number}} \u2014 BWS auto-approval blocked. One or more chargesets routed to manual review. See exception log for details."
+          },
+          "depends_on": [
+            4
+          ],
+          "condition": "Step 4 succeeded",
+          "base_entity_type": null
+        }
+      ],
+      "success_criteria": {
+        "expected_actions": [
+          "validate_all_charge_lines",
+          "approve_eligible_chargesets",
+          "route_ineligible_to_manual_review"
+        ],
+        "expected_state_changes": {
+          "chargeset_status": "APPROVED"
+        },
+        "must_not_happen": [
+          "approve_chargeset_with_other_line",
+          "approve_chargeset_with_off_menu_charge",
+          "approve_chargeset_with_off_rate_amount",
+          "approve_chargeset_with_fuel_surcharge_line",
+          "approve_hand_entered_charge_that_should_be_tariff_rated",
+          "approve_bill_only_job_charges",
+          "approve_chargeset_with_duplicate_charges",
+          "approve_detention_or_storage_without_trusted_source",
+          "approve_warehouse_storage_or_transload_on_import_drayage"
+        ]
+      },
+      "watched_fields": [
+        "status",
+        "charges.*.charge_name",
+        "charges.*.amount",
+        "charges.*.chargeType"
+      ],
+      "monitoring_watched_fields": null,
+      "schedule_config": null,
+      "execution_mode": "SERIAL_AFTER",
+      "depends_on_scenarios": [],
+      "priority": 0,
+      "context_scope": {
+        "load_fields": [
+          "reference_number",
+          "type_of_load",
+          "status",
+          "callerName",
+          "driverOrder",
+          "documents"
+        ],
+        "chargeset_fields": [
+          "_id",
+          "status",
+          "isDefault",
+          "pricing",
+          "billingTags"
+        ],
+        "charge_fields": [
+          "name",
+          "finalAmount",
+          "chargeType",
+          "status",
+          "unit",
+          "perType"
+        ],
+        "documents": [],
+        "include_shared_memory": true,
+        "memory_filter": [
+          "billing"
+        ]
+      },
+      "retry_config": {
+        "max_retries": 3,
+        "backoff_minutes": [
+          1,
+          5,
+          15
+        ]
+      },
+      "script_id": null,
+      "skill_ids": null,
+      "trigger_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "task_triggered_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "summerized_steps": "<plan_instruction>\nPlan Steps for: Auto-Approve Tariff-Rated Chargesets on Load Completion\n\n============================================================\n\nStep 1: Search for the load to get full load details including type, status, and customer\n  Tool: search-loads\n  Parameters:\n    searchTerm = \"{{reference_number}}\"\n    fieldsToReturn = [\"_id\", \"reference_number\", \"type_of_load\", \"status\", \"callerName\", \"driverOrder\", \"documents\"]\n\nStep 2: Get charge list for the load to inspect all chargesets and their line items\n  Tool: get-charge-list\n  Parameters:\n    loadNumbers = [\"{{reference_number}}\"]\n  Depends on: Step 1\n  Condition: ALL of the following must be true from Step 1:\n    - callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.\n    - Load must be in COMPLETED status from {{0.status}}. If not: STOP, return CONDITION_NOT_MET 'Load is not completed yet'.\n    - type_of_load from {{0.type_of_load}} must be 'IMPORT'. If type_of_load is 'BILL_ONLY': STOP, return CONDITION_NOT_MET 'Bill-only jobs require manual review \u2014 hand-entered charges not eligible for auto-approval'.\n\nStep 3: Approve all eligible chargesets that pass all BWS validation rules\n  Tool: approve-chargesets\n  Parameters:\n    chargeSetIds = \"{{eligible_chargeset_ids}}\"\n    loadId = \"{{0._id}}\"\n  Depends on: Step 1, Step 2\n  Condition: For EACH chargeset from Step 2 with status DRAFT or UNAPPROVED, validate ALL of the following. If ANY fails for a chargeset, exclude it and route to manual review:\n    1. Base Price charge must be present in the default chargeset (isDefault=true) and must be tariff-rated (chargeType in [CUSTOMER_RATES, DYNAMIC_PRICING, SYSTEM_GENERATED, PROFILE_RATES, ZIPCODE_RATES, CITYSTATE_RATES, EDI_204]).\n    2. There must be NO separate 'Fuel Surcharge' or 'Fuel' line item \u2014 BWS line haul is all-in. If a Fuel Surcharge line exists: exclude chargeset, flag as data error.\n    3. Every charge name must be one of: 'Base Price', 'Pre-Pull', 'Chassis', 'Yard Storage', 'Empty Load Storage', 'Port Detention', 'Delivery Detention', 'Heavy Container Fee', 'Warehouse Storage', 'Transload'. Any charge not in this list is off-menu \u2014 exclude chargeset.\n    4. No charge name may contain 'other' (case-insensitive). If an 'other' line exists: exclude chargeset.\n    5. No duplicate charges (no two charges with the same name in the same chargeset).\n    6. Only tariff-rated charges may be auto-approved: Base Price, Pre-Pull, Chassis. These must have chargeType in [CUSTOMER_RATES, DYNAMIC_PRICING, SYSTEM_GENERATED, PROFILE_RATES, ZIPCODE_RATES, CITYSTATE_RATES, EDI_204]. If any of these are hand-entered (chargeType = 'MANUALLY_CHANGED'), exclude chargeset \u2014 this signals a tariff gap.\n    7. Hand-entered charges (Warehouse Storage, Transload, Port Detention, Delivery Detention, Heavy Container Fee) must NOT be present on import drayage chargesets being auto-approved. If present, exclude chargeset \u2014 these require manual review until tariff carries them.\n    8. Rate validation for tariff-rated charges: Base Price ~$540, Pre-Pull ~$125, Chassis ~$40. If any amount deviates significantly from standard rate, exclude chargeset.\n    9. Time-based charges (Yard Storage, Empty Load Storage) must have quantity from system dwell tracking (chargeType not MANUALLY_CHANGED for unit count). If hand-entered quantity, exclude chargeset.\n    If no chargesets pass all validations: STOP, return CONDITION_NOT_MET 'No chargesets eligible for auto-approval \u2014 all routed to manual review'.\n\n--- ESCALATION (validation failures detected) ---\n\nStep 4: Fetch exception template for auto-approval blocked\n  Tool: get_exception_template\n  Parameters:\n    exception_type = \"Charge Approval Blocked\"\n    request_type = \"PRICING_AND_BILLING\"\n  Depends on: Step 3\n  Condition: Step 3 returned CONDITION_NOT_MET or one or more chargesets were excluded from approval due to validation failures\n\nStep 5: Log exception for chargesets that failed validation and were routed to manual review\n  Tool: create-ai-request-log\n  Parameters:\n    agentName = \"BILLING_AGENT\"\n    status = \"AI_REQUESTED\"\n    category = \"BWS Auto-Approval Blocked\"\n    exceptionType = \"Charge Approval Blocked\"\n    requestType = \"PRICING_AND_BILLING\"\n    exceptionDetail = \"One or more BWS chargesets could not be auto-approved. Reasons may include: off-menu charge, off-rate amount, 'other' line present, hand-entered charge that should be tariff-rated, duplicate charge, Fuel Surcharge line present (BWS is all-in), or hand-entered detention/storage quantity. Routed to manual review.\"\n    requestContext = \"Load {{reference_number}}, Customer: BWS Logistics, type: IMPORT drayage.\"\n    entities = [{\"entityType\": \"LOAD\", \"entityId\": \"{{0._id}}\", \"entityName\": \"{{reference_number}}\"}]\n  Depends on: Step 4\n  Condition: Step 4 succeeded (exception template fetched)\n\nStep 6: Post exception to channel via Captain\n  Tool: captain_post\n  Parameters:\n    ai_log_id = \"{{4._id}}\"\n    channel_name = \"Exceptions-Handling\"\n    message = \"Load {{reference_number}} \u2014 BWS auto-approval blocked. One or more chargesets routed to manual review. See exception log for details.\"\n  Depends on: Step 5\n  Condition: Step 5 succeeded\n\n</plan_instruction>",
+      "unresolved_items": [],
+      "reasoning": "This is the main auto-approval scenario for BWS import drayage loads. Per the playbook, only tariff-rated charges (Base Price, Pre-Pull, Chassis) on import loads are auto-approval candidates. All hand-entered charges and bill-only jobs are routed to manual review. The scenario validates every line item against the BWS charge list, checks rates, ensures no off-menu or 'other' charges, and verifies charge sources. Convergence triggers include LOAD_COMPLETED and CHARGE_PRICING_ADDED since charges may arrive after completion. Fuel Surcharge is explicitly flagged as a data error per Section 1 (BWS is all-in). Exception escalation is included because the playbook describes routing failures to manual review, which implies human notification."
+    },
+    {
+      "scenario_name": "Flag Fuel Surcharge Line as Data Error",
+      "scenario_description": "BWS line haul is all-in \u2014 fuel is included in the Base Price. There is never a separate Fuel Surcharge line. If a Fuel Surcharge line appears, treat it as a data error and flag for review.",
+      "scenario_category": "charge_approval",
+      "executor_type": "BILLING_AGENT",
+      "trigger_events": [
+        "CHARGE_PRICING_ADDED",
+        "CHARGE_PRICING_UPDATED"
+      ],
+      "monitoring_events": [],
+      "trigger_conditions": {},
+      "execution_plan": [
+        {
+          "step_id": 0,
+          "description": "Search for the load to verify it is a BWS Logistics load",
+          "tool": "search-loads",
+          "parameters": {
+            "searchTerm": "{{reference_number}}",
+            "fieldsToReturn": [
+              "_id",
+              "reference_number",
+              "callerName",
+              "type_of_load"
+            ]
+          },
+          "depends_on": null,
+          "condition": null,
+          "base_entity_type": null
+        },
+        {
+          "step_id": 1,
+          "description": "Get charge detail to check if the added/updated charge is a Fuel Surcharge",
+          "tool": "get-charge-detail",
+          "parameters": {
+            "load_reference_number": "{{reference_number}}"
+          },
+          "depends_on": [
+            0
+          ],
+          "condition": "callerName from Step 0 contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 2,
+          "description": "Fetch exception template for Fuel Surcharge data error",
+          "tool": "get_exception_template",
+          "parameters": {
+            "exception_type": "Data Error",
+            "request_type": "PRICING_AND_BILLING"
+          },
+          "depends_on": [
+            1
+          ],
+          "condition": "A charge with name containing 'Fuel Surcharge' or 'Fuel' (case-insensitive, but NOT 'Base Price') exists in any chargeset from Step 1. If no Fuel Surcharge line found: STOP, return CONDITION_NOT_MET 'No Fuel Surcharge line detected'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 3,
+          "description": "Log exception for Fuel Surcharge data error on BWS load",
+          "tool": "create-ai-request-log",
+          "parameters": {
+            "agentName": "BILLING_AGENT",
+            "status": "AI_REQUESTED",
+            "category": "BWS Fuel Surcharge Data Error",
+            "exceptionType": "Data Error",
+            "requestType": "PRICING_AND_BILLING",
+            "exceptionDetail": "A Fuel Surcharge line was added to a BWS Logistics load. BWS line haul is all-in \u2014 fuel is included in the Base Price. A separate Fuel Surcharge line is a data error and must be reviewed and removed.",
+            "requestContext": "Load {{reference_number}}, Customer: BWS Logistics. Fuel Surcharge line detected.",
+            "entities": [
+              {
+                "entityType": "LOAD",
+                "entityId": "{{0._id}}",
+                "entityName": "{{reference_number}}"
+              }
+            ]
+          },
+          "depends_on": [
+            2
+          ],
+          "condition": "Step 2 succeeded",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 4,
+          "description": "Post Fuel Surcharge data error to channel via Captain",
+          "tool": "captain_post",
+          "parameters": {
+            "ai_log_id": "{{3._id}}",
+            "channel_name": "Exceptions-Handling",
+            "message": "Load {{reference_number}} \u2014 BWS Fuel Surcharge data error. A separate Fuel Surcharge line was added but BWS line haul is all-in (fuel included in Base Price). Please review and remove the Fuel Surcharge line."
+          },
+          "depends_on": [
+            3
+          ],
+          "condition": "Step 3 succeeded",
+          "base_entity_type": null
+        }
+      ],
+      "success_criteria": {
+        "expected_actions": [
+          "detect_fuel_surcharge_line",
+          "flag_for_review"
+        ],
+        "expected_state_changes": {
+          "exception_logged": true
+        },
+        "must_not_happen": [
+          "auto_approve_fuel_surcharge_on_bws_load",
+          "ignore_fuel_surcharge_line"
+        ]
+      },
+      "watched_fields": [
+        "charges.*.charge_name"
+      ],
+      "monitoring_watched_fields": null,
+      "schedule_config": null,
+      "execution_mode": "PARALLEL",
+      "depends_on_scenarios": [],
+      "priority": 30,
+      "context_scope": {
+        "load_fields": [
+          "reference_number",
+          "callerName",
+          "type_of_load"
+        ],
+        "chargeset_fields": [
+          "_id",
+          "status",
+          "pricing"
+        ],
+        "charge_fields": [
+          "name",
+          "finalAmount",
+          "chargeType"
+        ],
+        "documents": [],
+        "include_shared_memory": false,
+        "memory_filter": []
+      },
+      "retry_config": {
+        "max_retries": 2,
+        "backoff_minutes": [
+          1,
+          5
+        ]
+      },
+      "script_id": null,
+      "skill_ids": null,
+      "trigger_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "task_triggered_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "summerized_steps": "<plan_instruction>\nPlan Steps for: Flag Fuel Surcharge Line as Data Error\n\n============================================================\n\nStep 1: Search for the load to verify it is a BWS Logistics load\n  Tool: search-loads\n  Parameters:\n    searchTerm = \"{{reference_number}}\"\n    fieldsToReturn = [\"_id\", \"reference_number\", \"callerName\", \"type_of_load\"]\n\nStep 2: Get charge detail to check if the added/updated charge is a Fuel Surcharge\n  Tool: get-charge-detail\n  Parameters:\n    load_reference_number = \"{{reference_number}}\"\n  Depends on: Step 1\n  Condition: callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.\n\nStep 3: Fetch exception template for Fuel Surcharge data error\n  Tool: get_exception_template\n  Parameters:\n    exception_type = \"Data Error\"\n    request_type = \"PRICING_AND_BILLING\"\n  Depends on: Step 2\n  Condition: A charge with name containing 'Fuel Surcharge' or 'Fuel' (case-insensitive, but NOT 'Base Price') exists in any chargeset from {{1.data}}. If no Fuel Surcharge line found: STOP, return CONDITION_NOT_MET 'No Fuel Surcharge line detected'.\n\nStep 4: Log exception for Fuel Surcharge data error on BWS load\n  Tool: create-ai-request-log\n  Parameters:\n    agentName = \"BILLING_AGENT\"\n    status = \"AI_REQUESTED\"\n    category = \"BWS Fuel Surcharge Data Error\"\n    exceptionType = \"Data Error\"\n    requestType = \"PRICING_AND_BILLING\"\n    exceptionDetail = \"A Fuel Surcharge line was added to a BWS Logistics load. BWS line haul is all-in \u2014 fuel is included in the Base Price. A separate Fuel Surcharge line is a data error and must be reviewed and removed.\"\n    requestContext = \"Load {{reference_number}}, Customer: BWS Logistics. Fuel Surcharge line detected.\"\n    entities = [{\"entityType\": \"LOAD\", \"entityId\": \"{{0._id}}\", \"entityName\": \"{{reference_number}}\"}]\n  Depends on: Step 3\n  Condition: Step 3 succeeded\n\nStep 5: Post Fuel Surcharge data error to channel via Captain\n  Tool: captain_post\n  Parameters:\n    ai_log_id = \"{{3._id}}\"\n    channel_name = \"Exceptions-Handling\"\n    message = \"Load {{reference_number}} \u2014 BWS Fuel Surcharge data error. A separate Fuel Surcharge line was added but BWS line haul is all-in (fuel included in Base Price). Please review and remove the Fuel Surcharge line.\"\n  Depends on: Step 4\n  Condition: Step 4 succeeded\n\n</plan_instruction>",
+      "unresolved_items": [],
+      "reasoning": "Section 1 of the playbook explicitly states BWS line haul is all-in and a Fuel Surcharge line is a data error. This scenario detects the Fuel Surcharge line when it is added or updated and flags it immediately, rather than waiting for load completion. This is a proactive guard that runs independently of the auto-approval scenario."
+    },
+    {
+      "scenario_name": "Hold Other Charge Line for Definition",
+      "scenario_description": "There is a recurring small 'other' charge of $6 that has no defined meaning. Never auto-approve an 'other' line \u2014 hold it and escalate for definition. Hold any charge set carrying an 'other' line until that charge is defined.",
+      "scenario_category": "charge_approval",
+      "executor_type": "BILLING_AGENT",
+      "trigger_events": [
+        "CHARGE_PRICING_ADDED",
+        "CHARGE_PRICING_UPDATED"
+      ],
+      "monitoring_events": [],
+      "trigger_conditions": {},
+      "execution_plan": [
+        {
+          "step_id": 0,
+          "description": "Search for the load to verify it is a BWS Logistics load",
+          "tool": "search-loads",
+          "parameters": {
+            "searchTerm": "{{reference_number}}",
+            "fieldsToReturn": [
+              "_id",
+              "reference_number",
+              "callerName"
+            ]
+          },
+          "depends_on": null,
+          "condition": null,
+          "base_entity_type": null
+        },
+        {
+          "step_id": 1,
+          "description": "Get charge detail to check if the added/updated charge is an 'other' line",
+          "tool": "get-charge-detail",
+          "parameters": {
+            "load_reference_number": "{{reference_number}}"
+          },
+          "depends_on": [
+            0
+          ],
+          "condition": "callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 2,
+          "description": "Fetch exception template for undefined 'other' charge",
+          "tool": "get_exception_template",
+          "parameters": {
+            "exception_type": "Undefined Charge",
+            "request_type": "PRICING_AND_BILLING"
+          },
+          "depends_on": [
+            1
+          ],
+          "condition": "A charge with name containing 'other' (case-insensitive) exists in any chargeset from Step 1. If no 'other' line found: STOP, return CONDITION_NOT_MET 'No other charge line detected'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 3,
+          "description": "Log exception for undefined 'other' charge on BWS load",
+          "tool": "create-ai-request-log",
+          "parameters": {
+            "agentName": "BILLING_AGENT",
+            "status": "AI_REQUESTED",
+            "category": "BWS Undefined Other Charge",
+            "exceptionType": "Undefined Charge",
+            "requestType": "PRICING_AND_BILLING",
+            "exceptionDetail": "An 'other' charge line (~$6) was detected on a BWS Logistics load. This charge has no defined meaning and must never be auto-approved. The charge set is held until the 'other' charge is defined.",
+            "requestContext": "Load {{reference_number}}, Customer: BWS Logistics. 'Other' charge line detected \u2014 escalating for definition.",
+            "entities": [
+              {
+                "entityType": "LOAD",
+                "entityId": "{{0._id}}",
+                "entityName": "{{reference_number}}"
+              }
+            ]
+          },
+          "depends_on": [
+            2
+          ],
+          "condition": "Step 2 succeeded",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 4,
+          "description": "Post 'other' charge exception to channel via Captain",
+          "tool": "captain_post",
+          "parameters": {
+            "ai_log_id": "{{3._id}}",
+            "channel_name": "Exceptions-Handling",
+            "message": "Load {{reference_number}} \u2014 BWS 'other' charge (~$6) detected. This charge has no defined meaning. Charge set held for manual review. Please define this charge before it can be approved."
+          },
+          "depends_on": [
+            3
+          ],
+          "condition": "Step 3 succeeded",
+          "base_entity_type": null
+        }
+      ],
+      "success_criteria": {
+        "expected_actions": [
+          "detect_other_charge",
+          "hold_chargeset",
+          "escalate_for_definition"
+        ],
+        "expected_state_changes": {
+          "exception_logged": true
+        },
+        "must_not_happen": [
+          "auto_approve_other_charge",
+          "ignore_other_charge_line"
+        ]
+      },
+      "watched_fields": [
+        "charges.*.charge_name"
+      ],
+      "monitoring_watched_fields": null,
+      "schedule_config": null,
+      "execution_mode": "SERIAL",
+      "depends_on_scenarios": [],
+      "priority": 10,
+      "context_scope": {
+        "load_fields": [
+          "reference_number",
+          "callerName"
+        ],
+        "chargeset_fields": [
+          "_id",
+          "status",
+          "pricing"
+        ],
+        "charge_fields": [
+          "name",
+          "finalAmount"
+        ],
+        "documents": [],
+        "include_shared_memory": false,
+        "memory_filter": []
+      },
+      "retry_config": {
+        "max_retries": 2,
+        "backoff_minutes": [
+          1,
+          5
+        ]
+      },
+      "script_id": null,
+      "skill_ids": null,
+      "trigger_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "task_triggered_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "summerized_steps": "<plan_instruction>\nPlan Steps for: Hold Other Charge Line for Definition\n\n============================================================\n\nStep 1: Search for the load to verify it is a BWS Logistics load\n  Tool: search-loads\n  Parameters:\n    searchTerm = \"{{reference_number}}\"\n    fieldsToReturn = [\"_id\", \"reference_number\", \"callerName\"]\n\nStep 2: Get charge detail to check if the added/updated charge is an 'other' line\n  Tool: get-charge-detail\n  Parameters:\n    load_reference_number = \"{{reference_number}}\"\n  Depends on: Step 1\n  Condition: callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.\n\nStep 3: Fetch exception template for undefined 'other' charge\n  Tool: get_exception_template\n  Parameters:\n    exception_type = \"Undefined Charge\"\n    request_type = \"PRICING_AND_BILLING\"\n  Depends on: Step 2\n  Condition: A charge with name containing 'other' (case-insensitive) exists in any chargeset from {{1.data}}. If no 'other' line found: STOP, return CONDITION_NOT_MET 'No other charge line detected'.\n\nStep 4: Log exception for undefined 'other' charge on BWS load\n  Tool: create-ai-request-log\n  Parameters:\n    agentName = \"BILLING_AGENT\"\n    status = \"AI_REQUESTED\"\n    category = \"BWS Undefined Other Charge\"\n    exceptionType = \"Undefined Charge\"\n    requestType = \"PRICING_AND_BILLING\"\n    exceptionDetail = \"An 'other' charge line (~$6) was detected on a BWS Logistics load. This charge has no defined meaning and must never be auto-approved. The charge set is held until the 'other' charge is defined.\"\n    requestContext = \"Load {{reference_number}}, Customer: BWS Logistics. 'Other' charge line detected \u2014 escalating for definition.\"\n    entities = [{\"entityType\": \"LOAD\", \"entityId\": \"{{0._id}}\", \"entityName\": \"{{reference_number}}\"}]\n  Depends on: Step 3\n  Condition: Step 3 succeeded\n\nStep 5: Post 'other' charge exception to channel via Captain\n  Tool: captain_post\n  Parameters:\n    ai_log_id = \"{{3._id}}\"\n    channel_name = \"Exceptions-Handling\"\n    message = \"Load {{reference_number}} \u2014 BWS 'other' charge (~$6) detected. This charge has no defined meaning. Charge set held for manual review. Please define this charge before it can be approved.\"\n  Depends on: Step 4\n  Condition: Step 4 succeeded\n\n</plan_instruction>",
+      "unresolved_items": [
+        "The playbook mentions a recurring 'other' charge of ~$6 with no defined meaning. What is this charge? Once defined, it can be added to the approved charge list or removed from loads."
+      ],
+      "reasoning": "Section 5 and 7 of the playbook explicitly state that 'other' lines must never be auto-approved and charge sets carrying them must be held. This is a proactive guard that fires on charge add/update to catch the 'other' line immediately. SERIAL mode with priority 10 ensures it blocks before the auto-approval scenario runs."
+    },
+    {
+      "scenario_name": "Surface Draft Chargeset Backlog for BWS",
+      "scenario_description": "11 of the recent charge sets are sitting in draft, not yet invoiced \u2014 surface this backlog to billing.",
+      "scenario_category": "notification",
+      "executor_type": "BILLING_AGENT",
+      "trigger_events": [
+        "LOAD_COMPLETED"
+      ],
+      "monitoring_events": [],
+      "trigger_conditions": {},
+      "execution_plan": [
+        {
+          "step_id": 0,
+          "description": "Search for the load to verify it is a BWS Logistics load and get load details",
+          "tool": "search-loads",
+          "parameters": {
+            "searchTerm": "{{reference_number}}",
+            "fieldsToReturn": [
+              "_id",
+              "reference_number",
+              "callerName",
+              "status"
+            ]
+          },
+          "depends_on": null,
+          "condition": null,
+          "base_entity_type": null
+        },
+        {
+          "step_id": 1,
+          "description": "Get charge list to check if the chargeset is still in DRAFT status",
+          "tool": "get-charge-list",
+          "parameters": {
+            "loadNumbers": [
+              "{{reference_number}}"
+            ]
+          },
+          "depends_on": [
+            0
+          ],
+          "condition": "callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 2,
+          "description": "Fetch exception template for draft chargeset backlog",
+          "tool": "get_exception_template",
+          "parameters": {
+            "exception_type": "Billing Backlog",
+            "request_type": "PRICING_AND_BILLING"
+          },
+          "depends_on": [
+            1
+          ],
+          "condition": "At least one chargeset from Step 1 has status 'DRAFT'. If all chargesets are APPROVED or INVOICED: STOP, return CONDITION_NOT_MET 'No draft chargesets \u2014 no backlog to surface'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 3,
+          "description": "Log the draft chargeset backlog for billing team visibility",
+          "tool": "create-ai-request-log",
+          "parameters": {
+            "agentName": "BILLING_AGENT",
+            "status": "AI_REQUESTED",
+            "category": "BWS Draft Chargeset Backlog",
+            "exceptionType": "Billing Backlog",
+            "requestType": "PRICING_AND_BILLING",
+            "exceptionDetail": "BWS Logistics load {{reference_number}} has completed but its chargeset(s) remain in DRAFT status. This contributes to the known backlog of uninvoiced BWS charge sets.",
+            "requestContext": "Load {{reference_number}}, Customer: BWS Logistics. Chargeset in DRAFT after load completion.",
+            "entities": [
+              {
+                "entityType": "LOAD",
+                "entityId": "{{0._id}}",
+                "entityName": "{{reference_number}}"
+              }
+            ]
+          },
+          "depends_on": [
+            2
+          ],
+          "condition": "Step 2 succeeded",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 4,
+          "description": "Post draft backlog notification to channel via Captain",
+          "tool": "captain_post",
+          "parameters": {
+            "ai_log_id": "{{3._id}}",
+            "channel_name": "Exceptions-Handling",
+            "message": "Load {{reference_number}} \u2014 BWS chargeset still in DRAFT after load completion. Part of known BWS billing backlog. Please review and process."
+          },
+          "depends_on": [
+            3
+          ],
+          "condition": "Step 3 succeeded",
+          "base_entity_type": null
+        }
+      ],
+      "success_criteria": {
+        "expected_actions": [
+          "detect_draft_chargeset",
+          "surface_backlog_to_billing"
+        ],
+        "expected_state_changes": {
+          "backlog_surfaced": true
+        },
+        "must_not_happen": [
+          "auto_approve_draft_without_validation",
+          "ignore_draft_backlog"
+        ]
+      },
+      "watched_fields": [
+        "status"
+      ],
+      "monitoring_watched_fields": null,
+      "schedule_config": null,
+      "execution_mode": "PARALLEL",
+      "depends_on_scenarios": [
+        "Auto-Approve Tariff-Rated Chargesets on Load Completion"
+      ],
+      "priority": 90,
+      "context_scope": {
+        "load_fields": [
+          "reference_number",
+          "callerName",
+          "status"
+        ],
+        "chargeset_fields": [
+          "_id",
+          "status"
+        ],
+        "charge_fields": [],
+        "documents": [],
+        "include_shared_memory": false,
+        "memory_filter": []
+      },
+      "retry_config": {
+        "max_retries": 2,
+        "backoff_minutes": [
+          1,
+          5
+        ]
+      },
+      "script_id": null,
+      "skill_ids": null,
+      "trigger_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "task_triggered_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "summerized_steps": "<plan_instruction>\nPlan Steps for: Surface Draft Chargeset Backlog for BWS\n\n============================================================\n\nStep 1: Search for the load to verify it is a BWS Logistics load\n  Tool: search-loads\n  Parameters:\n    searchTerm = \"{{reference_number}}\"\n    fieldsToReturn = [\"_id\", \"reference_number\", \"callerName\", \"status\"]\n\nStep 2: Get charge list to check if the chargeset is still in DRAFT status\n  Tool: get-charge-list\n  Parameters:\n    loadNumbers = [\"{{reference_number}}\"]\n  Depends on: Step 1\n  Condition: callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.\n\nStep 3: Fetch exception template for draft chargeset backlog\n  Tool: get_exception_template\n  Parameters:\n    exception_type = \"Billing Backlog\"\n    request_type = \"PRICING_AND_BILLING\"\n  Depends on: Step 2\n  Condition: At least one chargeset from {{1.data}} has status 'DRAFT'. If all chargesets are APPROVED or INVOICED: STOP, return CONDITION_NOT_MET 'No draft chargesets \u2014 no backlog to surface'.\n\nStep 4: Log the draft chargeset backlog for billing team visibility\n  Tool: create-ai-request-log\n  Parameters:\n    agentName = \"BILLING_AGENT\"\n    status = \"AI_REQUESTED\"\n    category = \"BWS Draft Chargeset Backlog\"\n    exceptionType = \"Billing Backlog\"\n    requestType = \"PRICING_AND_BILLING\"\n    exceptionDetail = \"BWS Logistics load {{reference_number}} has completed but its chargeset(s) remain in DRAFT status. This contributes to the known backlog of uninvoiced BWS charge sets.\"\n    requestContext = \"Load {{reference_number}}, Customer: BWS Logistics. Chargeset in DRAFT after load completion.\"\n    entities = [{\"entityType\": \"LOAD\", \"entityId\": \"{{0._id}}\", \"entityName\": \"{{reference_number}}\"}]\n  Depends on: Step 3\n  Condition: Step 3 succeeded\n\nStep 5: Post draft backlog notification to channel via Captain\n  Tool: captain_post\n  Parameters:\n    ai_log_id = \"{{3._id}}\"\n    channel_name = \"Exceptions-Handling\"\n    message = \"Load {{reference_number}} \u2014 BWS chargeset still in DRAFT after load completion. Part of known BWS billing backlog. Please review and process.\"\n  Depends on: Step 4\n  Condition: Step 4 succeeded\n\n</plan_instruction>",
+      "unresolved_items": [],
+      "reasoning": "Section 7 of the playbook explicitly mentions 11 draft charge sets sitting uninvoiced and asks to surface this backlog. This scenario fires on load completion (after auto-approval has had its chance) and checks if the chargeset is still in DRAFT \u2014 if so, it surfaces it to billing. This catches loads where auto-approval was blocked or not applicable."
+    },
+    {
+      "scenario_name": "Validate Charge Source for Detention Hours",
+      "scenario_description": "Detention hours (Port and Delivery) must come from the terminal/consignee arrive-and-depart times captured by geofence, not from driver-entered times. If a driver edits a detention time after the geofence has set it, hold the detention line and flag it.",
+      "scenario_category": "charge_approval",
+      "executor_type": "BILLING_AGENT",
+      "trigger_events": [
+        "CHARGE_PRICING_ADDED",
+        "CHARGE_PRICING_UPDATED"
+      ],
+      "monitoring_events": [],
+      "trigger_conditions": {},
+      "execution_plan": [
+        {
+          "step_id": 0,
+          "description": "Search for the load to verify it is a BWS Logistics load and get driver order with geofence timestamps",
+          "tool": "search-loads",
+          "parameters": {
+            "searchTerm": "{{reference_number}}",
+            "fieldsToReturn": [
+              "_id",
+              "reference_number",
+              "callerName",
+              "driverOrder"
+            ]
+          },
+          "depends_on": null,
+          "condition": null,
+          "base_entity_type": null
+        },
+        {
+          "step_id": 1,
+          "description": "Get charge detail to check if the charge is a detention line and validate its source",
+          "tool": "get-charge-detail",
+          "parameters": {
+            "load_reference_number": "{{reference_number}}"
+          },
+          "depends_on": [
+            0
+          ],
+          "condition": "callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 2,
+          "description": "Fetch exception template for detention source validation failure",
+          "tool": "get_exception_template",
+          "parameters": {
+            "exception_type": "Charge Source Validation",
+            "request_type": "PRICING_AND_BILLING"
+          },
+          "depends_on": [
+            1
+          ],
+          "condition": "A charge with name containing 'Port Detention' or 'Delivery Detention' (case-insensitive) exists in any chargeset from Step 1, AND the charge is hand-entered (chargeType = 'MANUALLY_CHANGED'). If no detention charge found or detention is tariff-rated: STOP, return CONDITION_NOT_MET 'No hand-entered detention charge detected'.",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 3,
+          "description": "Log exception for hand-entered detention charge that should use geofence times",
+          "tool": "create-ai-request-log",
+          "parameters": {
+            "agentName": "BILLING_AGENT",
+            "status": "AI_REQUESTED",
+            "category": "BWS Detention Source Validation",
+            "exceptionType": "Charge Source Validation",
+            "requestType": "PRICING_AND_BILLING",
+            "exceptionDetail": "Detention charge on BWS load is hand-entered. Per BWS policy, detention hours must come from geofence-captured arrive/depart times, not driver-entered times. Hold this detention line for review.",
+            "requestContext": "Load {{reference_number}}, Customer: BWS Logistics. Hand-entered detention charge detected.",
+            "entities": [
+              {
+                "entityType": "LOAD",
+                "entityId": "{{0._id}}",
+                "entityName": "{{reference_number}}"
+              }
+            ]
+          },
+          "depends_on": [
+            2
+          ],
+          "condition": "Step 2 succeeded",
+          "base_entity_type": null
+        },
+        {
+          "step_id": 4,
+          "description": "Post detention source exception to channel via Captain",
+          "tool": "captain_post",
+          "parameters": {
+            "ai_log_id": "{{3._id}}",
+            "channel_name": "Exceptions-Handling",
+            "message": "Load {{reference_number}} \u2014 BWS detention charge is hand-entered. Detention hours must come from geofence times per BWS policy. Held for manual review."
+          },
+          "depends_on": [
+            3
+          ],
+          "condition": "Step 3 succeeded",
+          "base_entity_type": null
+        }
+      ],
+      "success_criteria": {
+        "expected_actions": [
+          "detect_hand_entered_detention",
+          "hold_detention_line",
+          "flag_for_review"
+        ],
+        "expected_state_changes": {
+          "exception_logged": true
+        },
+        "must_not_happen": [
+          "auto_approve_hand_entered_detention",
+          "ignore_detention_source_mismatch"
+        ]
+      },
+      "watched_fields": [
+        "charges.*.charge_name",
+        "charges.*.chargeType"
+      ],
+      "monitoring_watched_fields": null,
+      "schedule_config": null,
+      "execution_mode": "PARALLEL",
+      "depends_on_scenarios": [],
+      "priority": 25,
+      "context_scope": {
+        "load_fields": [
+          "reference_number",
+          "callerName",
+          "driverOrder"
+        ],
+        "chargeset_fields": [
+          "_id",
+          "status",
+          "pricing"
+        ],
+        "charge_fields": [
+          "name",
+          "finalAmount",
+          "chargeType",
+          "unit"
+        ],
+        "documents": [],
+        "include_shared_memory": false,
+        "memory_filter": []
+      },
+      "retry_config": {
+        "max_retries": 2,
+        "backoff_minutes": [
+          1,
+          5
+        ]
+      },
+      "script_id": null,
+      "skill_ids": null,
+      "trigger_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "task_triggered_script": "function validate() { const context = CONTEXT_PLACEHOLDER; return true; } validate();",
+      "summerized_steps": "<plan_instruction>\nPlan Steps for: Validate Charge Source for Detention Hours\n\n============================================================\n\nStep 1: Search for the load to verify it is a BWS Logistics load and get driver order with geofence timestamps\n  Tool: search-loads\n  Parameters:\n    searchTerm = \"{{reference_number}}\"\n    fieldsToReturn = [\"_id\", \"reference_number\", \"callerName\", \"driverOrder\"]\n\nStep 2: Get charge detail to check if the charge is a detention line and validate its source\n  Tool: get-charge-detail\n  Parameters:\n    load_reference_number = \"{{reference_number}}\"\n  Depends on: Step 1\n  Condition: callerName from {{0.callerName}} contains 'BWS' (case-insensitive). If not: STOP, return CONDITION_NOT_MET 'Not a BWS Logistics load'.\n\nStep 3: Fetch exception template for detention source validation failure\n  Tool: get_exception_template\n  Parameters:\n    exception_type = \"Charge Source Validation\"\n    request_type = \"PRICING_AND_BILLING\"\n  Depends on: Step 2\n  Condition: A charge with name containing 'Port Detention' or 'Delivery Detention' (case-insensitive) exists in any chargeset from {{1.data}}, AND the charge is hand-entered (chargeType = 'MANUALLY_CHANGED'). If no detention charge found or detention is tariff-rated: STOP, return CONDITION_NOT_MET 'No hand-entered detention charge detected'.\n\nStep 4: Log exception for hand-entered detention charge that should use geofence times\n  Tool: create-ai-request-log\n  Parameters:\n    agentName = \"BILLING_AGENT\"\n    status = \"AI_REQUESTED\"\n    category = \"BWS Detention Source Validation\"\n    exceptionType = \"Charge Source Validation\"\n    requestType = \"PRICING_AND_BILLING\"\n    exceptionDetail = \"Detention charge on BWS load is hand-entered. Per BWS policy, detention hours must come from geofence-captured arrive/depart times, not driver-entered times. Hold this detention line for review.\"\n    requestContext = \"Load {{reference_number}}, Customer: BWS Logistics. Hand-entered detention charge detected.\"\n    entities = [{\"entityType\": \"LOAD\", \"entityId\": \"{{0._id}}\", \"entityName\": \"{{reference_number}}\"}]\n  Depends on: Step 3\n  Condition: Step 3 succeeded\n\nStep 5: Post detention source exception to channel via Captain\n  Tool: captain_post\n  Parameters:\n    ai_log_id = \"{{3._id}}\"\n    channel_name = \"Exceptions-Handling\"\n    message = \"Load {{reference_number}} \u2014 BWS detention charge is hand-entered. Detention hours must come from geofence times per BWS policy. Held for manual review.\"\n  Depends on: Step 4\n  Condition: Step 4 succeeded\n\n</plan_instruction>",
+      "unresolved_items": [
+        "Section 4 states detention hours must come from geofence-captured times. How does the system distinguish geofence-set times from driver-edited times? Is there a specific field or flag that indicates the source of the arrive/depart timestamps? The current implementation checks chargeType as a proxy but a more reliable source indicator would improve accuracy."
+      ],
+      "reasoning": "Section 4 of the playbook requires detention hours to come from geofence-captured times, not driver-entered times. This scenario fires when a detention charge is added or updated and checks if it was hand-entered (chargeType = MANUALLY_CHANGED), which is a proxy for the charge not coming from the trusted geofence source. If hand-entered, it holds the line and flags for review."
+    }
+  ],
+  "conflict_report": [
+    {
+      "scenario_a": "Auto-Approve Tariff-Rated Chargesets on Load Completion",
+      "scenario_b": "Hold Other Charge Line for Definition",
+      "conflict_type": "dependency",
+      "description": "Both scenarios evaluate charges on BWS loads. The 'Hold Other Charge Line' scenario (priority 10, SERIAL) must run before the auto-approval scenario (priority 0, SERIAL_AFTER) to ensure 'other' lines are flagged before any approval attempt. The auto-approval scenario also independently checks for 'other' lines as a validation condition, providing defense-in-depth.",
+      "resolution_needed": true
+    },
+    {
+      "scenario_a": "Auto-Approve Tariff-Rated Chargesets on Load Completion",
+      "scenario_b": "Flag Fuel Surcharge Line as Data Error",
+      "conflict_type": "overlap",
+      "description": "Both scenarios check for Fuel Surcharge lines on BWS loads. The Fuel Surcharge scenario fires proactively on CHARGE_PRICING_ADDED/UPDATED, while the auto-approval scenario also rejects chargesets with Fuel Surcharge lines at completion time.",
+      "resolution_needed": true
+    }
+  ],
+  "unresolved_items": [
+    "Section 3: The trigger that selects the Warehouse Storage regime ($52.50 with 7-day free allowance vs $30 with no free days) must be confirmed before this charge can be trusted for auto-approval. What determines which regime applies to a given bill-only job?",
+    "Section 5: The recurring 'other' charge of ~$6 has no defined meaning. What is this charge? Once defined, it can be added to the approved charge list or the scenario can be updated.",
+    "Section 8 Prerequisite 1: The BWS Logistics tariff needs to be extended to carry bill-only charges (Warehouse Storage both regimes, Transload, Port Detention, Delivery Detention, Heavy Container Fee). Until this is done, only Base Price, Pre-Pull, and Chassis are auto-approval candidates.",
+    "Section 8 Prerequisite 2: The trusted source for storage days and detention hours needs to be formally defined and identified in the system. Currently using chargeType as a proxy for source validation.",
+    "Section 4: How does the system distinguish geofence-set arrive/depart times from driver-edited times? Is there a specific field, flag, or audit trail that indicates the source of timestamps?",
+    "Section 4: Storage days (Yard, Empty, Warehouse) must come from system dwell tracking. What specific system field or mechanism tracks dwell days, and how can the agent verify the source is system-calculated vs manually keyed?"
+  ]
+}
