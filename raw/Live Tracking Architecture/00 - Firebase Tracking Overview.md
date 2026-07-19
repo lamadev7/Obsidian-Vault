@@ -36,6 +36,32 @@ flowchart LR
 
 > DRAYOS-35867 fix repaired **Pipe B** (verified live). Open item = **Pipe A** marker for O/O.
 
+### Repo cast
+
+| Repo / service | Role in tracking |
+|----------------|------------------|
+| `PortPro-remastered-flutter` | in-house driver app — writes GPS (Pipe A) + history (Pipe B) |
+| `owner-operator-mobile` | O/O driver app — same, but **no `bearing`** |
+| `portpro-frontends` | **Broker/TMS FE** — subscribes Firebase, renders marker + trail |
+| `portpro-backend` | **Broker BE** — `getLoadFirebaseInstances`, `getDrayosFirebaseConfig`; also the **Drayos/Vendor BE** (customer-api module) on the other side |
+| `portpro-public-api` | **Customer Public API** — the Connect gateway (`PORTPRO_CONNECT_URL`) |
+| `portpro-tracking-api` | ingests `POST /mobile/history` → Mongo |
+
+### Hop chain per flow
+
+```mermaid
+flowchart LR
+  subgraph F1["Flow 1 — Carrier → own driver"]
+    A1["TMS FE<br/>portpro-frontends"] -->|"onValue (direct)"| G1[("🔥 driver-location-portpro")]
+  end
+  subgraph F23["Flow 2 / 3 — Broker/Hybrid → vendor/OO"]
+    A2["Broker FE<br/>portpro-frontends"] --> B2["Broker BE<br/>portpro-backend"] --> P2["Customer Public API<br/>portpro-public-api"] --> D2["Drayos BE<br/>portpro-backend · customer-api"]
+    A2 -.->|"then onValue"| G2[("🔥 driver-location-portpro")]
+  end
+```
+
+Flow 1 read = **direct to Firebase**. Flow 2/3 add **Broker BE → Customer Public API → Drayos BE** only to *resolve which carrier+driver+config*; the marker itself still comes from Firebase `onValue`.
+
 ---
 
 ## 2. The Firebase databases (env-verified)

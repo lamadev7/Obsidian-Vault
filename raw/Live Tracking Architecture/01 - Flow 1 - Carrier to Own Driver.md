@@ -14,6 +14,26 @@ Overview + building blocks: [[00 - Firebase Tracking Overview]].
 
 ---
 
+## Repo hop chain
+
+Single deployment — **no Customer Public API, no Drayos BE**. Marker comes straight from Firebase.
+
+```mermaid
+flowchart LR
+  subgraph W["WRITE — driver app"]
+    App["📱 Driver App<br/>PortPro-remastered-flutter"] -->|"Firebase SDK (direct)"| FB[("🔥 driver-location-portpro")]
+    App -->|"POST /mobile/history"| TA["🛰️ tracking-api<br/>portpro-tracking-api"] --> M[("🍃 Mongo<br/>driver_tracking_histories")]
+  end
+  subgraph R["READ — TMS"]
+    FE["🖥️ TMS FE<br/>portpro-frontends"] -->|"onValue (direct)"| FB
+    FE -->|"REST"| BE["⚙️ Broker BE<br/>portpro-backend"] --> M
+  end
+```
+
+> Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: `FE → BE → Customer Public API → Drayos BE`. Flow 1 skips both middle hops.
+
+---
+
 ## Sequence diagram
 
 ```mermaid
