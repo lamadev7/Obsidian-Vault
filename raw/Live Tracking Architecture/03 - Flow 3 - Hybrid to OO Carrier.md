@@ -18,73 +18,12 @@ Overview: [[00 - Firebase Tracking Overview]]. Contrast [[02 - Flow 2 - Broker t
 
 ---
 
-## Repo hop chain
+## Backend resolution (no diagram)
 
-Unlike Flow 2, driver resolution is an **in-process function call** — same deployment, **no HTTP hop** (`resolveDrayosFirebaseInstances` is called directly, not via `CPAHookCall`).
+Same `portpro-backend` deployment plays both roles (`tms` module = Broker/Hybrid BE, `customer-api` module = Drayos BE):
 
-```mermaid
-flowchart LR
-  FE["🖥️ Hybrid FE<br/>portpro-frontends"]
-  subgraph PB["⚙️ portpro-backend — single deployment, BOTH roles"]
-    BE["Hybrid/Broker BE · tms module<br/>tms-controller.js:11824<br/>getLoadFirebaseInstances"]
-    DE["🏢 Drayos BE · customer-api module<br/>customer-api-controller.js:483<br/>resolveDrayosFirebaseInstances()"]
-  end
-  FB[("🔥 driver-location-portpro")]
-
-  FE -->|"GET tms/load-firebase-instances"| BE
-  BE ==>|"in-process call (NO HTTP)<br/>flag ON && connectDestination==DRAYOS → localMapper"| DE
-  DE -.->|"[{driver, carrierId}] local ids"| BE
-  BE -.-> FE
-  FE -->|"onValue {ooCarrier}/currentLocation/{ooDriver}"| FB
-```
-
-> `==>` thick edge = in-process call; the **Drayos BE** here is the `customer-api` module of the **same** `portpro-backend` deployment (not a separate instance like Flow 2).
-
-> ⚠️ **Config path is the exception (containers page only):** `getDrayosFirebaseConfig` uses `CPAHookCall(isPortproConnect)` → `connectUrl || PORTPRO_CONNECT_URL` → the **Drayos BE `customer-api` module** (`getDrayosFirebaseConfig:588`). For a same-deployment O/O, `connectUrl` points back to the same backend → returns **MAIN**. That HTTP round-trip (not the local resolve) is what breaks 3b.
-
----
-
-## Detailed flow — both paths, with the Drayos-BE module
-
-Same `portpro-backend` deployment plays **both** roles. Driver-resolve = **in-process** function call into the `customer-api` module; config = **HTTP loopback** into the same `customer-api` module.
-
-```mermaid
-flowchart LR
-  subgraph FEG["🖥️ portpro-frontends"]
-    ELD["EachLiveDriverWithoutELD.js"]
-    LL["LoadList.js<br/>getActiveContainersFirebaseRefs()"]
-    SP["useContainersTrackingSidePanel.js:159<br/>fetchDrayosFirebaseConfig() (containers)"]
-    HOOK["useFirebaseRef.js:25 picker"]
-    CFG["config/index.js instances"]
-  end
-  subgraph BEG["⚙️ portpro-backend · tms module (Hybrid BE)"]
-    TMS1["tms-controller.js:11824<br/>getLoadFirebaseInstances (localMapper)"]
-    TMS2["tms-controller.js:11915<br/>getDrayosFirebaseConfig"]
-    SVC["customer-api-service.js:210<br/>CPAHookCall(isPortproConnect)"]
-  end
-  subgraph DEG["🏢 portpro-backend · customer-api module (Drayos BE — SAME deployment)"]
-    RESC["customer-api-controller.js:483<br/>resolveDrayosFirebaseInstances()"]
-    CTRL["customer-api-controller.js:588<br/>getDrayosFirebaseConfig → getFirebaseConfig() = MAIN"]
-  end
-  FBm[("🔥 driver-location-portpro (MOBILE)<br/>where O/O writes")]
-  FBx[("🔥 portpro-294915 (MAIN)<br/>empty for this node")]
-
-  LL -->|"1 · GET tms/load-firebase-instances"| TMS1
-  TMS1 ==>|"2 · in-process call (NO HTTP)"| RESC
-  RESC -.->|"3 · [{driver, carrierId}] local ids"| LL
-
-  SP -->|"5 · GET tms/getDrayosFirebaseConfig (containers ONLY)"| TMS2 --> SVC
-  SVC -->|"6 · HTTP connectUrl||PORTPRO_CONNECT_URL<br/>v1/broker/get-drayos-firebase-config (loops to self)"| CTRL
-  CTRL -.->|"7 · config = MAIN ⚠️"| SP
-
-  ELD --> HOOK --> CFG
-  CFG -->|"3a firebaseConfig=null → mobileFirebase"| FBm
-  CFG -->|"3b firebaseConfig=MAIN → getNewFirebaseInstanceByConfig"| FBx
-  FBm -.->|"✅ marker"| ELD
-  FBx -.->|"❌ empty"| ELD
-```
-
-> `==>` thick edge = in-process function call (driver-resolve, no network). Thin `-->` = HTTP. The Drayos-BE `customer-api` module is hit **both** ways — the config HTTP loopback is what returns MAIN.
+- **Driver-resolve** — `tms-controller.js:11824 getLoadFirebaseInstances`: flag ON + `connectDestination==DRAYOS` → `localMapper` → **in-process call** to `customer-api-controller.js:483 resolveDrayosFirebaseInstances()`. **No HTTP** (unlike Flow 2's `CPAHookCall`).
+- **Config (containers only)** — `tms-controller.js:11915 getDrayosFirebaseConfig` → `CPAHookCall(isPortproConnect)` → HTTP `connectUrl || PORTPRO_CONNECT_URL` `v1/broker/get-drayos-firebase-config` → loops back to the same backend's `customer-api-controller.js:588` → `getFirebaseConfig()` = **MAIN**. This HTTP round-trip is what breaks Page 1.
 
 ---
 
@@ -108,21 +47,8 @@ await _ref.set(_updatedData);
 Node = `{ooCarrierUser}/currentLocation/{defaultDriverUser}` in the **mobile** DB. Same shape as Flow 1 — just no `bearing`.
 
 ### Pipe B — trail (the DRAYOS-35867 fix)
-```mermaid
-flowchart LR
-  APP["📱 owner-operator-mobile"]
-  R["route /mobile/history?ownerOperator=true<br/>portpro-tracking-api · routes/index.js:58"]
-  MR["mobileAuthRouter<br/>middleware/mobileAuth.js:76"]
-  OO["ooAuth<br/>middleware/ooAuth.js"]
-  C["trackingHistoryController"]
-  M[("🍃 Mongo")]
 
-  APP -->|"POST"| R --> MR
-  MR -->|"ownerOperator==true"| OO
-  OO -->|"resolve carrier + defaultDriver<br/>ownerOperatorConfig.defaultDriver"| C
-  C -->|"insert history"| M
-  C -->|"update currentDriverLocation.coordinates<br/>on driver RECORD"| M
-```
+`owner-operator-mobile` → `POST /mobile/history?ownerOperator=true` → `portpro-tracking-api routes/index.js:58` → `mobileAuthRouter (mobileAuth.js:76)` → `ownerOperator==true` → `ooAuth (ooAuth.js)` → `trackingHistoryController` → inserts history **and** updates `currentDriverLocation.coordinates` on the driver RECORD (both in Mongo).
 
 `ooAuth` (`middleware/ooAuth.js`) resolves:
 - carrier user (`role:'carrier'`) → `req.body.carrier`
