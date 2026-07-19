@@ -38,22 +38,32 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  App["📱 Driver App · PortPro-remastered-flutter<br/>locationChangedListener()"]
-  FB[("🔥 driver-location-portpro<br/>MOBILE_FIREBASE_DATABASEURL<br/>node {carrier}/currentLocation/{driver}")]
-  TA["🛰️ portpro-tracking-api"]
-  M[("🍃 Mongo · driver_tracking_histories")]
-  FE["🖥️ TMS FE · portpro-frontends<br/>EachLiveDriverWithoutELD"]
-  BE["⚙️ Broker BE · portpro-backend"]
-  MK(["🚚 LeafletTrackingMarker"])
+  subgraph APPG["📱 PortPro-remastered-flutter"]
+    HVM["home_view_model.dart<br/>locationChangedListener()"]
+    FS["firebase_service.dart<br/>saveLocationToFirebaseDatabase()"]
+    LHS["location_history_service<br/>calculateTheHistoryAndSaveLocation()"]
+  end
+  FB[("🔥 driver-location-portpro<br/>MOBILE_FIREBASE_DATABASEURL<br/>{carrier}/currentLocation/{driver}")]
+  subgraph TAG["🛰️ portpro-tracking-api"]
+    RT["routes/index.js:58<br/>POST /mobile/history"]
+    MA["middleware/mobileAuth.js<br/>mobileAuthHandler"]
+    THC["controller/trackingHistoryController.js"]
+  end
+  M[("🍃 Mongo<br/>driver_tracking_histories")]
+  subgraph FEG["🖥️ portpro-frontends"]
+    ELD["LiveMarkers/EachLiveDriverWithoutELD.js<br/>handleDriverLocationUpdate()"]
+    HOOK["hooks/firebase/useFirebaseRef.js<br/>getFirebaseRefByNameSpace(isMobile:true)"]
+    CFG["config/index.js<br/>mobileFirebase instance"]
+    MK(["🚚 LeafletTrackingMarker"])
+  end
+  BE["⚙️ portpro-backend · tms module<br/>trail history REST"]
 
-  App -->|"Firebase SDK .set()  {location:[lng,lat], bearing, last}"| FB
-  App -->|"POST /mobile/history"| TA
-  TA -->|"insert"| M
-  FB -->|"onValue → handleDriverLocationUpdate()"| FE
-  FE -->|"GET trail history (REST)"| BE
-  BE -->|"query"| M
-  M -.->|"polyline"| FE
-  FE --> MK
+  HVM --> FS -->|".set() {location:[lng,lat], bearing, last}"| FB
+  HVM --> LHS -->|"POST"| RT --> MA --> THC -->|"insert"| M
+  ELD --> HOOK --> CFG -->|"onValue"| FB
+  FB -.->|"payload"| ELD --> MK
+  ELD -->|"GET trail (REST)"| BE -->|"query"| M
+  M -.->|"polyline"| ELD
 ```
 
 > **Flow 1 read is single-deployment** — no Connect hop. Broker BE only serves the trail; the marker comes straight from Firebase. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: **Broker FE → Broker BE → Drayos BE (portpro-backend · customer-api)**.

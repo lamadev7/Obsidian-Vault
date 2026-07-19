@@ -98,9 +98,9 @@ const ref = getFirebaseRefByNameSpace({ overrideNamespace: namespace, firebaseCo
 
 ```mermaid
 flowchart TD
-  N["namespace {ooCarrier}/currentLocation/{ooDriver}"] --> Q{"firebaseConfig?"}
-  Q -->|"3a load-info tab<br/>(null — never set)"| A["picker :34 isMobile<br/>→ mobileFirebase"]
-  Q -->|"3b containers page<br/>(getDrayosFirebaseConfig = MAIN)"| B["picker :25 firebaseConfig wins<br/>→ portpro-294915 (MAIN)"]
+  N["EachLiveDriverWithoutELD.js:212<br/>namespace {ooCarrier}/currentLocation/{ooDriver}"] --> Q{"useFirebaseRef.js<br/>firebaseConfig set?"}
+  Q -->|"3a · LoadTrackingHistory/index.js:32<br/>firebaseConfig = null"| A["picker :34 isMobile<br/>config/index.js → mobileFirebase"]
+  Q -->|"3b · useContainersTrackingSidePanel.js:159<br/>getDrayosFirebaseConfig = MAIN"| B["picker :25 firebaseConfig wins<br/>config/index.js → getNewFirebaseInstanceByConfig(MAIN)"]
   A --> AR[("🔥 driver-location-portpro<br/>= where O/O writes")]
   B --> BR[("🔥 portpro-294915<br/>MAIN — empty for this node")]
   AR --> OK(("✅ marker shows"))

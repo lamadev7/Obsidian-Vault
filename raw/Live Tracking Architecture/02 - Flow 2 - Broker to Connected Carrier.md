@@ -29,23 +29,32 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  FE["🖥️ Broker FE · portpro-frontends<br/>EachLiveDriverWithoutELD"]
-  BE["⚙️ Broker BE · portpro-backend · tms module<br/>getLoadFirebaseInstances / getDrayosFirebaseConfig"]
-  DE["🏢 Drayos BE · portpro-backend · customer-api module<br/>getDrayosFirebaseInstances / getDrayosFirebaseConfig"]
-  FB[("🔥 driver-location-portpro<br/>node {vendorCarrier}/currentLocation/{vendorDriver}")]
+  subgraph FEG["🖥️ portpro-frontends (Broker FE)"]
+    LL["LoadList.js<br/>getActiveContainersFirebaseRefs()"]
+    SP["useContainersTrackingSidePanel.js<br/>fetchDrayosFirebaseConfig() (containers)"]
+    ELD["EachLiveDriverWithoutELD.js"]
+    HOOK["useFirebaseRef.js<br/>getFirebaseRefByNameSpace"]
+    CFG["config/index.js instances"]
+  end
+  subgraph BEG["⚙️ portpro-backend · tms module (Broker BE)"]
+    TMS["tms-controller.js<br/>getLoadFirebaseInstances<br/>getDrayosFirebaseConfig"]
+    SVC["customer-api-service.js<br/>CPAHookCall(isPortproConnect)"]
+  end
+  subgraph DEG["🏢 portpro-backend · customer-api module (Drayos BE)"]
+    CTRL["customer-api-controller.js<br/>getDrayosFirebaseInstances<br/>getDrayosFirebaseConfig → getFirebaseConfig()"]
+  end
+  FB[("🔥 driver-location-portpro<br/>{vendorCarrier}/currentLocation/{vendorDriver}")]
   MK(["🚚 marker"])
 
-  FE -->|"1 · GET tms/load-firebase-instances"| BE
-  BE -->|"2 · CPAHookCall POST v1/broker/get-drayos-firebase-instances<br/>connectUrl || PORTPRO_CONNECT_URL · connect-x-api-key"| DE
-  DE -.->|"3 · [{driver, carrierId}] (vendor ids)"| BE
-  BE -.->|"4"| FE
+  LL -->|"1 · GET tms/load-firebase-instances"| TMS --> SVC
+  SVC -->|"2 · POST v1/broker/get-drayos-firebase-instances<br/>connectUrl||PORTPRO_CONNECT_URL · connect-x-api-key"| CTRL
+  CTRL -.->|"3 · [{driver, carrierId}]"| LL
 
-  FE -->|"5 · GET tms/getDrayosFirebaseConfig  (containers page ONLY)"| BE
-  BE -->|"6 · CPAHookCall GET v1/broker/get-drayos-firebase-config"| DE
-  DE -.->|"7 · config = getFirebaseConfig() = MAIN ⚠️"| BE
-  BE -.->|"8"| FE
+  SP -->|"5 · GET tms/getDrayosFirebaseConfig (containers ONLY)"| TMS
+  SVC -->|"6 · GET v1/broker/get-drayos-firebase-config"| CTRL
+  CTRL -.->|"7 · config = MAIN ⚠️"| SP
 
-  FE -->|"9 · onValue subscribe"| FB
+  ELD --> HOOK --> CFG -->|"9 · onValue subscribe"| FB
   FB -.->|"10 · location payload"| MK
 ```
 
