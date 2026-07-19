@@ -121,3 +121,4 @@ Load-info tab (3a) dodges it by never setting `firebaseConfig` → picker falls 
 
 ## Related
 - [[01 - Flow 1 - Carrier to Own Driver]]
+- [[02 - Flow 2 - Broker to Connected Carrier]]
