@@ -34,33 +34,29 @@ flowchart LR
 
 ---
 
-## Sequence diagram
+## Detailed flow — endpoints, routes, DBs
 
 ```mermaid
-sequenceDiagram
-  autonumber
-  participant App as 📱 Driver App · PortPro-remastered-flutter
-  participant FB as 🔥 driver-location-portpro
-  participant TA as 🛰️ tracking-api · portpro-tracking-api
-  participant M as 🍃 Mongo · driver_tracking_histories
-  participant FE as 🖥️ TMS FE · portpro-frontends
+flowchart LR
+  App["📱 Driver App · PortPro-remastered-flutter<br/>locationChangedListener()"]
+  FB[("🔥 driver-location-portpro<br/>MOBILE_FIREBASE_DATABASEURL<br/>node {carrier}/currentLocation/{driver}")]
+  TA["🛰️ portpro-tracking-api"]
+  M[("🍃 Mongo · driver_tracking_histories")]
+  FE["🖥️ TMS FE · portpro-frontends<br/>EachLiveDriverWithoutELD"]
+  BE["⚙️ Broker BE · portpro-backend"]
+  MK(["🚚 LeafletTrackingMarker"])
 
-  Note over App: GPS tick (locationChangedListener)
-  App->>App: bearing = bearingBetween(prev, now)
-  par Pipe A (marker)
-    App->>FB: set {carrier}/currentLocation/{driver}<br/>{location:[lng,lat], bearing, last, ...}
-  and Pipe B (trail)
-    App->>TA: POST /mobile/history
-    TA->>M: insert driver_tracking_histories
-  end
-  FE->>FB: on("value")  (isMobile, firebaseConfig=null)
-  FB-->>FE: location payload
-  FE->>FE: [lng,lat] → [lat,lng]; setHistory
-  FE->>FE: render <LeafletTrackingMarker> 🚚
-  M-->>FE: REST → trail polyline
+  App -->|"Firebase SDK .set()  {location:[lng,lat], bearing, last}"| FB
+  App -->|"POST /mobile/history"| TA
+  TA -->|"insert"| M
+  FB -->|"onValue → handleDriverLocationUpdate()"| FE
+  FE -->|"GET trail history (REST)"| BE
+  BE -->|"query"| M
+  M -.->|"polyline"| FE
+  FE --> MK
 ```
 
-> **Flow 1 is single-repo on the read path** — no Connect hop. Broker FE → Broker BE only when it needs the driver list; the marker comes straight from Firebase. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]] which crosses **Broker FE → Broker BE → Customer Public API → Drayos BE**.
+> **Flow 1 read is single-deployment** — no Connect hop. Broker BE only serves the trail; the marker comes straight from Firebase. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: **Broker FE → Broker BE → Customer Public API → Drayos BE**.
 
 ---
 

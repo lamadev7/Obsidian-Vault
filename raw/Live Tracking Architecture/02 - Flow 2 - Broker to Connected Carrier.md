@@ -23,36 +23,29 @@ flowchart LR
   DE -.->|"[{driver, carrierId}]"| PA -.-> BE -.-> FE
 ```
 
-## Sequence diagram
+## Detailed flow — endpoints, routes, DBs
 
 ```mermaid
-sequenceDiagram
-  autonumber
-  participant FE as 🖥️ Broker FE · portpro-frontends
-  participant BE as ⚙️ Broker BE · portpro-backend
-  participant PA as 🌐 Customer Public API · portpro-public-api
-  participant DE as 🏢 Drayos BE · portpro-backend customer-api
-  participant FB as 🔥 driver-location-portpro
+flowchart LR
+  FE["🖥️ Broker FE · portpro-frontends<br/>EachLiveDriverWithoutELD"]
+  BE["⚙️ Broker BE · portpro-backend<br/>getLoadFirebaseInstances"]
+  PA["🌐 Customer Public API · portpro-public-api<br/>PORTPRO_CONNECT_URL"]
+  DE["🏢 Drayos BE · portpro-backend · customer-api<br/>getDrayosFirebaseInstances / getDrayosFirebaseConfig"]
+  FB[("🔥 driver-location-portpro<br/>node {vendorCarrier}/currentLocation/{vendorDriver}")]
+  MK(["🚚 marker"])
 
-  Note over FE,DE: 1) resolve WHICH carrier + driver
-  FE->>BE: GET tms/load-firebase-instances
-  BE->>PA: CPAHookCall v1/broker/load-firebase-instances<br/>(isPortproConnect → PORTPRO_CONNECT_URL)
-  PA->>DE: forward (connect-x-api-key)
-  DE-->>PA: [{driver, carrierId}] (vendor ids)
-  PA-->>BE: same
-  BE-->>FE: mapper[vendorDriver] = vendorCarrier
+  FE -->|"1 · GET tms/load-firebase-instances"| BE
+  BE -->|"2 · CPAHookCall POST v1/broker/load-firebase-instances"| PA
+  PA -->|"3 · connect-x-api-key → /broker/get-drayos-firebase-instances"| DE
+  DE -.->|"4 · [{driver, carrierId}] (vendor ids)"| FE
 
-  rect rgba(255,180,0,0.12)
-    Note over FE,DE: 2) resolve WHICH firebase — containers page ONLY
-    FE->>BE: GET tms/getDrayosFirebaseConfig
-    BE->>PA: CPAHookCall v1/broker/get-drayos-firebase-config
-    PA->>DE: forward
-    DE-->>FE: config = getFirebaseConfig() = MAIN ⚠️
-  end
+  FE -->|"5 · GET tms/getDrayosFirebaseConfig  (containers page ONLY)"| BE
+  BE -->|"6 · CPAHookCall GET v1/broker/get-drayos-firebase-config"| PA
+  PA -->|"7 · /broker/get-drayos-firebase-config"| DE
+  DE -.->|"8 · config = getFirebaseConfig() = MAIN ⚠️"| FE
 
-  Note over FE,FB: 3) subscribe
-  FE->>FB: on("value") {vendorCarrier}/currentLocation/{vendorDriver}
-  FB-->>FE: location payload → 🚚 marker
+  FE -->|"9 · onValue subscribe"| FB
+  FB -.->|"10 · location payload"| MK
 ```
 
 ---

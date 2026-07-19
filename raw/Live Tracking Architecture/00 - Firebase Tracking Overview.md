@@ -20,13 +20,13 @@ Every tracking screen is fed by two **independent** pipes:
 ```mermaid
 flowchart LR
   App["📱 Driver App<br/>PortPro-remastered-flutter<br/>owner-operator-mobile"]
-  App -->|"Pipe A: GPS write (SDK)"| FB[("🔥 Firebase RTDB<br/>driver-location-portpro")]
-  App -->|"Pipe B: POST /mobile/history"| TA["🛰️ tracking-api<br/>portpro-tracking-api"]
-  TA --> M[("🍃 Mongo<br/>driver_tracking_histories")]
+  App -->|"Pipe A · Firebase SDK .set()"| FB[("🔥 driver-location-portpro<br/>MOBILE_FIREBASE_DATABASEURL")]
+  App -->|"Pipe B · POST /mobile/history"| TA["🛰️ portpro-tracking-api"]
+  TA -->|"insert"| M[("🍃 Mongo<br/>driver_tracking_histories")]
   FB -->|"onValue subscribe"| FE["🖥️ TMS FE<br/>portpro-frontends"]
-  M -->|"REST via Broker BE<br/>portpro-backend"| FE
-  FE --> Marker["🚚 moving marker (Pipe A)"]
-  FE --> Trail["〰️ breadcrumb trail (Pipe B)"]
+  M -->|"GET trail (REST)<br/>via portpro-backend"| FE
+  FE --> Marker(["🚚 moving marker (Pipe A)"])
+  FE --> Trail(["〰️ breadcrumb trail (Pipe B)"])
 ```
 
 | Pipe | Feeds | Mechanism |
@@ -143,10 +143,10 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  T["tender loads"] --> S{"flag ON<br/>&& connectDestination == DRAYOS ?"}
-  S -->|yes| L["localMapper<br/>resolveDrayosFirebaseInstances<br/>(same deployment, no hop)"]
-  S -->|no| C["connectMapper<br/>CPAHookCall → vendor instance"]
-  L --> R["merged [{driver, carrierId}]"]
+  T["GET tms/load-firebase-instances<br/>getLoadFirebaseInstances()"] --> S{"flag ON<br/>&& connectDestination == DRAYOS ?"}
+  S -->|yes| L["localMapper →<br/>CustomerApiController.resolveDrayosFirebaseInstances()<br/>(same deployment, no hop)"]
+  S -->|no| C["connectMapper →<br/>CPAHookCall POST v1/broker/load-firebase-instances<br/>(PORTPRO_CONNECT_URL → Drayos BE)"]
+  L --> R[("merged [{driver, carrierId}]")]
   C --> R
 ```
 
