@@ -2,82 +2,128 @@
 title: Flow 2 — Broker → Carrier (connected carrier, cross-instance)
 tags: [tracking, firebase, flow, connect, drayos-35867]
 created: 2026-07-19
-status: verified (code) + one assumed item (shared mobile project)
+status: verified (code) + 1 assumed item
 ---
 
-# Flow 2 — Broker → Carrier (connected carrier)
+# Flow 2 — Broker → Connected Carrier
 
-Broker has **no own drivers**. Load tendered to a **connected carrier** = separate PortPro instance, `connectDestination ≠ DRAYOS`. Broker reaches across via Connect to (a) resolve which carrier+driver, (b) learn which Firebase holds their GPS.
+Broker has **no own drivers**. Load tendered to a **connected carrier** = separate PortPro instance (`connectDestination ≠ DRAYOS`). Broker reaches across via **Connect (CPA)** to resolve the vendor's carrier+driver and their Firebase.
 
-See [[00 - Firebase Tracking Overview]] for building blocks + DB map. Contrast [[01 - Flow 1 - Carrier to Own Driver]].
-
-## Screen
-Broker **Live Tracking** / **Load → Tracking tab** — wants connected carrier's driver moving on map. Broker never had that driver locally.
+Overview: [[00 - Firebase Tracking Overview]]. Contrast: [[01 - Flow 1 - Carrier to Own Driver]].
 
 ---
 
-## 1. Resolve vendor carrier+driver — via Connect (CPA)
+## Sequence diagram
 
-`portpro-backend tms-controller.js getLoadFirebaseInstances` (`:11824`)
-```js
-:11875  isDrayosDestination = drayosCarrier.connectDestination === DRAYOS   // FALSE (connected)
-:11878  → connectMapper[key]                                               // else branch
-:11886  connectMapper non-empty:
-:11887    CPAHookCall({ url:"v1/broker/load-firebase-instances",
-:11890                  body:{ tenderRefToRefNumberMapper: connectMapper },
-:11892                  isPortproConnect:true })                           // hop to VENDOR instance
-:11899  data = vendor rows → [{ driver, carrierId }]   (VENDOR id-space)
-```
-Vendor handler `customer-api-controller.js getDrayosFirebaseInstances` (route `/broker/get-drayos-firebase-instances:1252`, auth `connect-x-api-key`) resolves its own load → `{driver, carrierId}` in **vendor** ids.
+```mermaid
+sequenceDiagram
+  autonumber
+  participant FE as 🖥️ Broker Frontend
+  participant BE as Broker Backend
+  participant V as 🏢 Vendor Instance (Connect)
+  participant FB as 🔥 driver-location-portpro (shared?)
 
-FE stores: `LoadList.js:132` `brokerCarrierDriverIdMapper[vendorDriver._id] = vendorCarrierId`.
+  FE->>BE: tms/load-firebase-instances
+  BE->>V: CPA v1/broker/load-firebase-instances
+  V-->>BE: [{driver, carrierId}]  (vendor ids)
+  BE-->>FE: mapper[vendorDriver] = vendorCarrier
 
-> ⚠️ **Discrepancy flagged:** CPA calls `v1/broker/load-firebase-instances` but registered vendor route is `/broker/get-drayos-firebase-instances`. Either Connect gateway rewrites, or worth verifying. Rewrite NOT confirmed.
+  rect rgba(255,180,0,0.12)
+    Note over FE,V: containers page ONLY
+    FE->>BE: tms/getDrayosFirebaseConfig
+    BE->>V: CPA get-drayos-firebase-config
+    V-->>FE: config = getFirebaseConfig() = MAIN ⚠️
+  end
 
-## 2. Resolve vendor Firebase config — `getDrayosFirebaseConfig`
-
-Only **containers side-panel** fetches it: `useContainersTrackingSidePanel.js:115,159` → `getDrayosFirebaseConfig` → BE `tms-controller.js getDrayosFirebaseConfig:11915` → CPA `v1/broker/get-drayos-firebase-config` → **vendor** handler:
-```js
-customer-api-controller.js:590  const config = controllers.TmsController.getFirebaseConfig();  // ← MAIN
-:591  return config;   // FIREBASE_DATABASEURL, NOT mobile
-```
-→ `firebaseConfig` = **vendor MAIN** (portpro-294915-equivalent), **never the mobile GPS DB.**
-
-## 3. Namespace + instance — `EachLiveDriverWithoutELD.js:207`
-```js
-:210  carrier = brokerCarrierDriverIdMapper[driver._id]      // vendorCarrierId
-:211  _isBrokerContainerTrackingEnabled && carrier → TRUE
-:212  namespace = `${vendorCarrier}/currentLocation/${vendorDriver}`
-:215  ref = getFirebaseRefByNameSpace({ overrideNamespace, firebaseConfig, isMobile:true })
+  FE->>FB: on("value") {vendorCarrier}/currentLocation/{vendorDriver}
+  FB-->>FE: location → 🚚 marker
 ```
 
-Instance splits by surface (`useFirebaseRef.js`):
+---
 
-| Surface | `firebaseConfig` | picker line | Instance read |
-|---------|------------------|-------------|---------------|
-| **Load-info tab** | `null` (`LoadTrackingHistory:32`, store never set here) | `:34 isMobile` | **mobileFirebase** = `driver-location-portpro` |
-| **Containers page** | vendor **MAIN** (`getDrayosFirebaseConfig`) | `:25 firebaseConfig wins` | **vendor MAIN** (ignores isMobile) |
+## 1. Resolve vendor carrier+driver (via CPA)
+
+`portpro-backend/server/modules/tms/tms-controller.js getLoadFirebaseInstances:11824`
+```js
+isDrayosDestination = drayosCarrier.connectDestination === DRAYOS;  // FALSE (connected)
+// → connectMapper branch
+CPAHookCall({
+  url: "v1/broker/load-firebase-instances",
+  body: { tenderRefToRefNumberMapper: connectMapper },
+  isPortproConnect: true,                       // hop to vendor instance
+});
+// returns [{ driver, carrierId }] in VENDOR id-space
+```
+Vendor handler: `customer-api-controller.js getDrayosFirebaseInstances` (route `/broker/get-drayos-firebase-instances:1252`, auth `connect-x-api-key`).
+
+FE stores:
+```js
+// LoadList.js:132
+brokerCarrierDriverIdMapper[vendorDriver._id] = vendorCarrierId;
+```
+
+> ⚠️ **Route-name discrepancy (unconfirmed):** CPA calls `v1/broker/load-firebase-instances`, but registered vendor route is `/broker/get-drayos-firebase-instances`. Connect gateway may rewrite — not verified.
+
+## 2. Resolve vendor Firebase config (containers page only)
+
+`useContainersTrackingSidePanel.js:115` → `getDrayosFirebaseConfig` → BE `getDrayosFirebaseConfig:11915` → CPA → **vendor** handler:
+```js
+// customer-api-controller.js:590  (VENDOR side)
+const config = controllers.TmsController.getFirebaseConfig();  // = FIREBASE_DATABASEURL
+return config;                                                 // ← MAIN, never mobile ⚠️
+```
+
+## 3. Namespace + instance
+`EachLiveDriverWithoutELD.js:207`
+```js
+const carrier = brokerCarrierDriverIdMapper[driver._id];   // vendorCarrierId
+if (_isBrokerContainerTrackingEnabled && carrier)
+  namespace = `${vendorCarrier}/currentLocation/${vendorDriver}`;
+const ref = getFirebaseRefByNameSpace({ overrideNamespace: namespace, firebaseConfig, isMobile: true });
+```
+
+**Splits by surface:**
+
+| Surface | `firebaseConfig` | picker result | reads |
+|---------|------------------|---------------|-------|
+| **Load-info tab** | `null` | `:34 isMobile` | `driver-location-portpro` ✅ |
+| **Containers page** | vendor **MAIN** | `:25 firebaseConfig wins` | vendor MAIN ❌ |
 
 ## 4. Subscribe + render
-Same as Flow 1 — `:222 .on("value")` → `handleDriverLocationUpdate:104` → `setHistory` → `<LeafletTrackingMarker>` (`:266`).
+Same as Flow 1 — `.on("value")` → `handleDriverLocationUpdate` → `<LeafletTrackingMarker>`.
 
 ---
 
-## Where GPS actually lives + who's right
+## Where GPS actually lives
 
-`firebaseConnection.js:15-17` — every deployment backend has `mobileDatabase = MOBILE_FIREBASE_DATABASEURL`. Driver apps write GPS to that **mobile** project (`driver-location-portpro`), NOT main.
+`portpro-backend/server/modules/firebaseConnection.js:15-17`
+```js
+const mobileDatabase = process.env.MOBILE_FIREBASE_DATABASEURL
+  ? app.database(process.env.MOBILE_FIREBASE_DATABASEURL)   // driver-location-portpro
+  : database;                                               // else MAIN
+```
+Driver apps write GPS to the **mobile** project, not main.
 
-- **Load-info tab** reads `driver-location-portpro` at `{vendorCarrier}/currentLocation/{vendorDriver}`. Works **IF** `driver-location-portpro` is the shared org-wide mobile project (vendor app writes there). Same DB as write → ✅
-- **Containers page** reads vendor **MAIN** — GPS is in mobile → **MISMATCH → no marker.** ❌ Same bug class as 3b.
+```mermaid
+flowchart LR
+  subgraph Load-info tab
+    A["firebaseConfig=null"] --> B["mobileFirebase"] --> OK(("✅ match"))
+  end
+  subgraph Containers page
+    C["firebaseConfig=vendor MAIN"] --> D["vendor MAIN"] --> BAD(("❌ GPS is in mobile"))
+  end
+```
+
+---
 
 ## Verified vs assumed
-- ✅ `getDrayosFirebaseConfig` → vendor MAIN, not mobile (`customer-api-controller.js:590` + `getFirebaseConfig:828`)
-- ✅ `firebaseConfig` set only by containers side-panel; load-info tab = null
-- ✅ backend `mobileDatabase` = separate `MOBILE_FIREBASE_DATABASEURL` instance (`firebaseConnection.js:15`)
-- ⏳ **Assumed:** `driver-location-portpro` is one org-wide project shared by connected-carrier deployments — what makes load-info tab work cross-instance. Not directly verified (needs vendor env).
+- ✅ vendor `getDrayosFirebaseConfig` → MAIN, not mobile (`customer-api-controller.js:590` + `getFirebaseConfig:828`)
+- ✅ `firebaseConfig` set only by containers side-panel
+- ✅ backend `mobileDatabase` = separate `MOBILE_FIREBASE_DATABASEURL` instance
+- ⏳ **assumed:** `driver-location-portpro` is one org-wide project shared by connected-carrier deployments — this is what makes the load-info tab work cross-instance. Needs vendor env to confirm.
 
 ## Net
-Broker→connected: **namespace** correct (vendor ids via CPA). **Load-info tab** reads shared mobile DB → works. **Containers page** reads vendor MAIN → marker breaks. `getDrayosFirebaseConfig` returning MAIN instead of mobile is the **same root bug** hitting both connected-carrier and O/O on the containers surface.
+Namespace resolves correctly (vendor ids via CPA). **Load-info tab** → shared mobile DB → works. **Containers page** → vendor MAIN → marker breaks. `getDrayosFirebaseConfig` returning MAIN instead of mobile is the **same root bug** as [[03 - Flow 3 - Hybrid to OO Carrier|Flow 3b]].
 
 ## Next
-- [[03 - Flow 3 - Hybrid to OO Carrier]] — 3a load-info OK / 3b containers BUG (DRAYOS-35867 core)
+- [[03 - Flow 3 - Hybrid to OO Carrier]] — DRAYOS-35867 core
