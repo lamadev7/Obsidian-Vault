@@ -43,9 +43,11 @@ flowchart LR
 | `PortPro-remastered-flutter` | in-house driver app — writes GPS (Pipe A) + history (Pipe B) |
 | `owner-operator-mobile` | O/O driver app — same, but **no `bearing`** |
 | `portpro-frontends` | **Broker/TMS FE** — subscribes Firebase, renders marker + trail |
-| `portpro-backend` | **Broker BE** — `getLoadFirebaseInstances`, `getDrayosFirebaseConfig`; also the **Drayos/Vendor BE** (customer-api module) on the other side |
-| `portpro-public-api` | **Customer Public API** — the Connect gateway (`PORTPRO_CONNECT_URL`) |
+| `portpro-backend` | plays **two roles**: **Broker BE** (`tms` module — `getLoadFirebaseInstances`, `getDrayosFirebaseConfig`) AND **Drayos BE** (`customer-api` module — the Connect/Customer-API surface, `/broker/*` routes) |
+| `portpro-public-api` | ❌ **NOT in the tracking path** (verified — no `/broker/*` or firebase routes). Ignore for tracking. |
 | `portpro-tracking-api` | ingests `POST /mobile/history` → Mongo |
+
+> The Connect/Customer-API is **`portpro-backend`'s `customer-api` module**, reached via `connectUrl || PORTPRO_CONNECT_URL`. There is **no separate public-api layer** in the code path.
 
 ### Hop chain per flow
 
@@ -54,13 +56,22 @@ flowchart LR
   subgraph F1["Flow 1 — Carrier → own driver"]
     A1["TMS FE<br/>portpro-frontends"] -->|"onValue (direct)"| G1[("🔥 driver-location-portpro")]
   end
-  subgraph F23["Flow 2 / 3 — Broker/Hybrid → vendor/OO"]
-    A2["Broker FE<br/>portpro-frontends"] --> B2["Broker BE<br/>portpro-backend"] --> P2["Customer Public API<br/>portpro-public-api"] --> D2["Drayos BE<br/>portpro-backend · customer-api"]
+  subgraph F2["Flow 2 — Broker → connected carrier"]
+    A2["Broker FE<br/>portpro-frontends"] --> B2["Broker BE<br/>portpro-backend · tms"]
+    B2 -->|"HTTP: connectUrl || PORTPRO_CONNECT_URL<br/>v1/broker/*"| D2["Drayos BE<br/>portpro-backend · customer-api"]
     A2 -.->|"then onValue"| G2[("🔥 driver-location-portpro")]
+  end
+  subgraph F3["Flow 3 — Hybrid → OO (same deployment)"]
+    A3["Hybrid FE<br/>portpro-frontends"] --> B3["Hybrid BE<br/>portpro-backend · tms"]
+    B3 -->|"in-process (no HTTP)<br/>resolveDrayosFirebaseInstances()"| D3["customer-api module<br/>(same backend)"]
+    A3 -.->|"then onValue"| G3[("🔥 driver-location-portpro")]
   end
 ```
 
-Flow 1 read = **direct to Firebase**. Flow 2/3 add **Broker BE → Customer Public API → Drayos BE** only to *resolve which carrier+driver+config*; the marker itself still comes from Firebase `onValue`.
+- **Flow 1** read = **direct to Firebase**, no backend hop for the marker.
+- **Flow 2** = Broker BE → **HTTP** → Drayos BE (`customer-api`) to resolve carrier+driver+config.
+- **Flow 3** = same-deployment, driver-resolve is an **in-process call** (no HTTP); only the containers-page config path makes the HTTP round-trip.
+- In all three the marker still comes from Firebase `onValue`.
 
 ---
 

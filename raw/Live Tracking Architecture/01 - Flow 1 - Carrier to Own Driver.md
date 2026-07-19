@@ -16,7 +16,7 @@ Overview + building blocks: [[00 - Firebase Tracking Overview]].
 
 ## Repo hop chain
 
-Single deployment — **no Customer Public API, no Drayos BE**. Marker comes straight from Firebase.
+Single deployment — **no Connect hop, no Drayos BE**. Marker comes straight from Firebase.
 
 ```mermaid
 flowchart LR
@@ -30,7 +30,7 @@ flowchart LR
   end
 ```
 
-> Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: `FE → BE → Customer Public API → Drayos BE`. Flow 1 skips both middle hops.
+> Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: `Broker FE → Broker BE → Drayos BE (portpro-backend · customer-api)`. Flow 1 skips the Drayos-BE hop.
 
 ---
 
@@ -56,7 +56,7 @@ flowchart LR
   FE --> MK
 ```
 
-> **Flow 1 read is single-deployment** — no Connect hop. Broker BE only serves the trail; the marker comes straight from Firebase. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: **Broker FE → Broker BE → Customer Public API → Drayos BE**.
+> **Flow 1 read is single-deployment** — no Connect hop. Broker BE only serves the trail; the marker comes straight from Firebase. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]]: **Broker FE → Broker BE → Drayos BE (portpro-backend · customer-api)**.
 
 ---
 

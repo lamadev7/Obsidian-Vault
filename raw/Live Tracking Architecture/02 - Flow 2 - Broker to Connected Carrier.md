@@ -15,12 +15,14 @@ Overview: [[00 - Firebase Tracking Overview]]. Contrast: [[01 - Flow 1 - Carrier
 
 ## Repo hop chain
 
+3 layers — **not** 4. `portpro-public-api` is **not** in this path (verified: it has none of these routes). The Connect/Customer-API surface is the **`customer-api` module running on the Drayos backend**.
+
 ```mermaid
 flowchart LR
-  FE["🖥️ Broker FE<br/>portpro-frontends"] -->|"tms/load-firebase-instances"| BE["⚙️ Broker BE<br/>portpro-backend<br/>getLoadFirebaseInstances"]
-  BE -->|"CPAHookCall (isPortproConnect)<br/>PORTPRO_CONNECT_URL + v1/broker/*"| PA["🌐 Customer Public API<br/>portpro-public-api<br/>(Connect gateway)"]
-  PA -->|"connect-x-api-key"| DE["🏢 Drayos / Vendor BE<br/>portpro-backend · customer-api<br/>getDrayosFirebaseInstances"]
-  DE -.->|"[{driver, carrierId}]"| PA -.-> BE -.-> FE
+  FE["🖥️ Broker FE<br/>portpro-frontends"] -->|"GET tms/load-firebase-instances"| BE["⚙️ Broker BE<br/>portpro-backend · tms module<br/>getLoadFirebaseInstances"]
+  BE -->|"CPAHookCall (isPortproConnect)<br/>connectUrl || PORTPRO_CONNECT_URL<br/>+ v1/broker/get-drayos-firebase-instances<br/>auth: connect-x-api-key"| DE["🏢 Drayos / Vendor BE<br/>portpro-backend · customer-api module<br/>(= Connect/Customer-API surface)<br/>getDrayosFirebaseInstances"]
+  DE -.->|"[{driver, carrierId}] vendor ids"| BE
+  BE -.-> FE
 ```
 
 ## Detailed flow — endpoints, routes, DBs
@@ -28,21 +30,20 @@ flowchart LR
 ```mermaid
 flowchart LR
   FE["🖥️ Broker FE · portpro-frontends<br/>EachLiveDriverWithoutELD"]
-  BE["⚙️ Broker BE · portpro-backend<br/>getLoadFirebaseInstances"]
-  PA["🌐 Customer Public API · portpro-public-api<br/>PORTPRO_CONNECT_URL"]
-  DE["🏢 Drayos BE · portpro-backend · customer-api<br/>getDrayosFirebaseInstances / getDrayosFirebaseConfig"]
+  BE["⚙️ Broker BE · portpro-backend · tms module<br/>getLoadFirebaseInstances / getDrayosFirebaseConfig"]
+  DE["🏢 Drayos BE · portpro-backend · customer-api module<br/>getDrayosFirebaseInstances / getDrayosFirebaseConfig"]
   FB[("🔥 driver-location-portpro<br/>node {vendorCarrier}/currentLocation/{vendorDriver}")]
   MK(["🚚 marker"])
 
   FE -->|"1 · GET tms/load-firebase-instances"| BE
-  BE -->|"2 · CPAHookCall POST v1/broker/load-firebase-instances"| PA
-  PA -->|"3 · connect-x-api-key → /broker/get-drayos-firebase-instances"| DE
-  DE -.->|"4 · [{driver, carrierId}] (vendor ids)"| FE
+  BE -->|"2 · CPAHookCall POST v1/broker/get-drayos-firebase-instances<br/>connectUrl || PORTPRO_CONNECT_URL · connect-x-api-key"| DE
+  DE -.->|"3 · [{driver, carrierId}] (vendor ids)"| BE
+  BE -.->|"4"| FE
 
   FE -->|"5 · GET tms/getDrayosFirebaseConfig  (containers page ONLY)"| BE
-  BE -->|"6 · CPAHookCall GET v1/broker/get-drayos-firebase-config"| PA
-  PA -->|"7 · /broker/get-drayos-firebase-config"| DE
-  DE -.->|"8 · config = getFirebaseConfig() = MAIN ⚠️"| FE
+  BE -->|"6 · CPAHookCall GET v1/broker/get-drayos-firebase-config"| DE
+  DE -.->|"7 · config = getFirebaseConfig() = MAIN ⚠️"| BE
+  BE -.->|"8"| FE
 
   FE -->|"9 · onValue subscribe"| FB
   FB -.->|"10 · location payload"| MK
@@ -50,9 +51,11 @@ flowchart LR
 
 ---
 
-## 1. Resolve vendor carrier+driver (via Customer Public API)
+## 1. Resolve vendor carrier+driver (Broker BE → Drayos BE)
 
-**Hop chain:** Broker FE (`portpro-frontends`) → Broker BE (`portpro-backend`) → Customer Public API (`portpro-public-api`, `PORTPRO_CONNECT_URL`) → Drayos BE (`portpro-backend · customer-api`).
+**Hop chain (3 layers):** Broker FE (`portpro-frontends`) → Broker BE (`portpro-backend · tms`) → **Drayos BE** (`portpro-backend · customer-api module`, reached via `connectUrl || PORTPRO_CONNECT_URL`).
+
+> ❗ `portpro-public-api` is **NOT** in this path — verified, it has none of these routes. The Connect/Customer-API is the `customer-api` module **on the Drayos backend**.
 
 **Broker BE** — `portpro-backend/server/modules/tms/tms-controller.js getLoadFirebaseInstances:11824`
 ```js
@@ -70,13 +73,13 @@ CPAHookCall({
 ```js
 const CPAHookCall = async ({ method, url, body, query, isPortproConnect = false }) => {
   const baseUrl = isPortproConnect
-    ? process.env.PORTPRO_CONNECT_URL           // ← Customer Public API (portpro-public-api)
+    ? process.env.PORTPRO_CONNECT_URL           // ← Drayos BE base (or drayosCarrier.connectUrl)
     : (process.env.CUSTOMER_WEBHOOK_URL ?? '').split('v1')[0];
-  // → `${baseUrl}v1/broker/load-firebase-instances`
+  // → `${baseUrl}v1/broker/...`  hits the Drayos BE's customer-api routes
 };
 ```
 
-**Drayos/Vendor BE handler** — `customer-api-controller.js getDrayosFirebaseInstances` (route `/broker/get-drayos-firebase-instances:1252`, auth `connect-x-api-key`). Resolves the vendor's own load → `{driver, carrierId}`.
+**Drayos/Vendor BE handler** — `customer-api-controller.js getDrayosFirebaseInstances` (route `/broker/get-drayos-firebase-instances:1252`, auth `connect-x-api-key`). Runs **on the Drayos backend**, resolves its own load → `{driver, carrierId}`.
 
 FE stores:
 ```js

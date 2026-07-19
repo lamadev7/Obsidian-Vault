@@ -14,28 +14,29 @@ Two surfaces diverge:
 - **3a — Load-info Tracking tab** → works ✅
 - **3b — Containers page** → no marker ❌
 
-Overview: [[00 - Firebase Tracking Overview]]. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]] (cross-instance via Customer Public API).
+Overview: [[00 - Firebase Tracking Overview]]. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]] (cross-instance, HTTP hop to the Drayos BE `customer-api` module).
 
 ---
 
 ## Repo hop chain
 
-Unlike Flow 2, driver resolution is **LOCAL** — same deployment, **no Customer Public API, no separate Drayos BE**.
+Unlike Flow 2, driver resolution is an **in-process function call** — same deployment, **no HTTP hop** (`resolveDrayosFirebaseInstances` is called directly, not via `CPAHookCall`).
 
 ```mermaid
 flowchart LR
   FE["🖥️ Hybrid FE<br/>portpro-frontends"]
-  BE["⚙️ Hybrid BE<br/>portpro-backend<br/>getLoadFirebaseInstances"]
-  LR2["🔁 resolveDrayosFirebaseInstances()<br/>portpro-backend · customer-api<br/>(LOCAL, no hop)"]
+  BE["⚙️ Hybrid BE<br/>portpro-backend · tms module<br/>getLoadFirebaseInstances"]
+  LR2["🔁 controllers.CustomerApiController<br/>.resolveDrayosFirebaseInstances()<br/>portpro-backend · customer-api module<br/>(LOCAL in-process — no HTTP)"]
   FB[("🔥 driver-location-portpro")]
 
   FE -->|"GET tms/load-firebase-instances"| BE
-  BE -->|"flag ON && connectDestination==DRAYOS<br/>→ localMapper"| LR2
-  LR2 -.->|"[{driver, carrierId}] local ids"| FE
+  BE -->|"flag ON && connectDestination==DRAYOS<br/>→ localMapper (in-process call)"| LR2
+  LR2 -.->|"[{driver, carrierId}] local ids"| BE
+  BE -.-> FE
   FE -->|"onValue {ooCarrier}/currentLocation/{ooDriver}"| FB
 ```
 
-> ⚠️ **Config path is the exception:** the containers page still calls `getDrayosFirebaseConfig` → `CPAHookCall(isPortproConnect)` → `PORTPRO_CONNECT_URL` → loops back to **this** deployment → returns **MAIN**. That loop is what breaks 3b.
+> ⚠️ **Config path is the exception (containers page only):** `getDrayosFirebaseConfig` uses `CPAHookCall(isPortproConnect)` → `connectUrl || PORTPRO_CONNECT_URL` → the **Drayos BE `customer-api` module** (`getDrayosFirebaseConfig:588`). For a same-deployment O/O, `connectUrl` points back to the same backend → returns **MAIN**. That HTTP round-trip (not the local resolve) is what breaks 3b.
 
 ---
 
