@@ -25,16 +25,20 @@ Unlike Flow 2, driver resolution is an **in-process function call** — same dep
 ```mermaid
 flowchart LR
   FE["🖥️ Hybrid FE<br/>portpro-frontends"]
-  BE["⚙️ Hybrid BE<br/>portpro-backend · tms module<br/>getLoadFirebaseInstances"]
-  LR2["🔁 controllers.CustomerApiController<br/>.resolveDrayosFirebaseInstances()<br/>portpro-backend · customer-api module<br/>(LOCAL in-process — no HTTP)"]
+  subgraph PB["⚙️ portpro-backend — single deployment, BOTH roles"]
+    BE["Hybrid/Broker BE · tms module<br/>tms-controller.js:11824<br/>getLoadFirebaseInstances"]
+    DE["🏢 Drayos BE · customer-api module<br/>customer-api-controller.js:483<br/>resolveDrayosFirebaseInstances()"]
+  end
   FB[("🔥 driver-location-portpro")]
 
   FE -->|"GET tms/load-firebase-instances"| BE
-  BE -->|"flag ON && connectDestination==DRAYOS<br/>→ localMapper (in-process call)"| LR2
-  LR2 -.->|"[{driver, carrierId}] local ids"| BE
+  BE ==>|"in-process call (NO HTTP)<br/>flag ON && connectDestination==DRAYOS → localMapper"| DE
+  DE -.->|"[{driver, carrierId}] local ids"| BE
   BE -.-> FE
   FE -->|"onValue {ooCarrier}/currentLocation/{ooDriver}"| FB
 ```
+
+> `==>` thick edge = in-process call; the **Drayos BE** here is the `customer-api` module of the **same** `portpro-backend` deployment (not a separate instance like Flow 2).
 
 > ⚠️ **Config path is the exception (containers page only):** `getDrayosFirebaseConfig` uses `CPAHookCall(isPortproConnect)` → `connectUrl || PORTPRO_CONNECT_URL` → the **Drayos BE `customer-api` module** (`getDrayosFirebaseConfig:588`). For a same-deployment O/O, `connectUrl` points back to the same backend → returns **MAIN**. That HTTP round-trip (not the local resolve) is what breaks 3b.
 
