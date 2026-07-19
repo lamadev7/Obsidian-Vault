@@ -19,11 +19,11 @@ Overview + building blocks: [[00 - Firebase Tracking Overview]].
 ```mermaid
 sequenceDiagram
   autonumber
-  participant App as 📱 In-house Driver App
+  participant App as 📱 Driver App · PortPro-remastered-flutter
   participant FB as 🔥 driver-location-portpro
-  participant TA as tracking-api
-  participant M as 🍃 Mongo
-  participant FE as 🖥️ TMS Frontend
+  participant TA as 🛰️ tracking-api · portpro-tracking-api
+  participant M as 🍃 Mongo · driver_tracking_histories
+  participant FE as 🖥️ TMS FE · portpro-frontends
 
   Note over App: GPS tick (locationChangedListener)
   App->>App: bearing = bearingBetween(prev, now)
@@ -31,14 +31,16 @@ sequenceDiagram
     App->>FB: set {carrier}/currentLocation/{driver}<br/>{location:[lng,lat], bearing, last, ...}
   and Pipe B (trail)
     App->>TA: POST /mobile/history
-    TA->>M: driver_tracking_histories
+    TA->>M: insert driver_tracking_histories
   end
   FE->>FB: on("value")  (isMobile, firebaseConfig=null)
   FB-->>FE: location payload
   FE->>FE: [lng,lat] → [lat,lng]; setHistory
-  FE->>FE: <LeafletTrackingMarker> 🚚
+  FE->>FE: render <LeafletTrackingMarker> 🚚
   M-->>FE: REST → trail polyline
 ```
+
+> **Flow 1 is single-repo on the read path** — no Connect hop. Broker FE → Broker BE only when it needs the driver list; the marker comes straight from Firebase. Contrast [[02 - Flow 2 - Broker to Connected Carrier|Flow 2]] which crosses **Broker FE → Broker BE → Customer Public API → Drayos BE**.
 
 ---
 

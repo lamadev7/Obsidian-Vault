@@ -19,12 +19,12 @@ Every tracking screen is fed by two **independent** pipes:
 
 ```mermaid
 flowchart LR
-  App["📱 Driver App"]
+  App["📱 Driver App<br/>PortPro-remastered-flutter<br/>owner-operator-mobile"]
   App -->|"Pipe A: GPS write (SDK)"| FB[("🔥 Firebase RTDB<br/>driver-location-portpro")]
-  App -->|"Pipe B: POST /mobile/history"| TA["tracking-api"]
+  App -->|"Pipe B: POST /mobile/history"| TA["🛰️ tracking-api<br/>portpro-tracking-api"]
   TA --> M[("🍃 Mongo<br/>driver_tracking_histories")]
-  FB -->|"onValue subscribe"| FE["🖥️ TMS Frontend"]
-  M -->|"REST read"| FE
+  FB -->|"onValue subscribe"| FE["🖥️ TMS FE<br/>portpro-frontends"]
+  M -->|"REST via Broker BE<br/>portpro-backend"| FE
   FE --> Marker["🚚 moving marker (Pipe A)"]
   FE --> Trail["〰️ breadcrumb trail (Pipe B)"]
 ```

@@ -13,48 +13,77 @@ Overview: [[00 - Firebase Tracking Overview]]. Contrast: [[01 - Flow 1 - Carrier
 
 ---
 
+## Repo hop chain
+
+```mermaid
+flowchart LR
+  FE["🖥️ Broker FE<br/>portpro-frontends"] -->|"tms/load-firebase-instances"| BE["⚙️ Broker BE<br/>portpro-backend<br/>getLoadFirebaseInstances"]
+  BE -->|"CPAHookCall (isPortproConnect)<br/>PORTPRO_CONNECT_URL + v1/broker/*"| PA["🌐 Customer Public API<br/>portpro-public-api<br/>(Connect gateway)"]
+  PA -->|"connect-x-api-key"| DE["🏢 Drayos / Vendor BE<br/>portpro-backend · customer-api<br/>getDrayosFirebaseInstances"]
+  DE -.->|"[{driver, carrierId}]"| PA -.-> BE -.-> FE
+```
+
 ## Sequence diagram
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant FE as 🖥️ Broker Frontend
-  participant BE as Broker Backend
-  participant V as 🏢 Vendor Instance (Connect)
-  participant FB as 🔥 driver-location-portpro (shared?)
+  participant FE as 🖥️ Broker FE · portpro-frontends
+  participant BE as ⚙️ Broker BE · portpro-backend
+  participant PA as 🌐 Customer Public API · portpro-public-api
+  participant DE as 🏢 Drayos BE · portpro-backend customer-api
+  participant FB as 🔥 driver-location-portpro
 
-  FE->>BE: tms/load-firebase-instances
-  BE->>V: CPA v1/broker/load-firebase-instances
-  V-->>BE: [{driver, carrierId}]  (vendor ids)
+  Note over FE,DE: 1) resolve WHICH carrier + driver
+  FE->>BE: GET tms/load-firebase-instances
+  BE->>PA: CPAHookCall v1/broker/load-firebase-instances<br/>(isPortproConnect → PORTPRO_CONNECT_URL)
+  PA->>DE: forward (connect-x-api-key)
+  DE-->>PA: [{driver, carrierId}] (vendor ids)
+  PA-->>BE: same
   BE-->>FE: mapper[vendorDriver] = vendorCarrier
 
   rect rgba(255,180,0,0.12)
-    Note over FE,V: containers page ONLY
-    FE->>BE: tms/getDrayosFirebaseConfig
-    BE->>V: CPA get-drayos-firebase-config
-    V-->>FE: config = getFirebaseConfig() = MAIN ⚠️
+    Note over FE,DE: 2) resolve WHICH firebase — containers page ONLY
+    FE->>BE: GET tms/getDrayosFirebaseConfig
+    BE->>PA: CPAHookCall v1/broker/get-drayos-firebase-config
+    PA->>DE: forward
+    DE-->>FE: config = getFirebaseConfig() = MAIN ⚠️
   end
 
+  Note over FE,FB: 3) subscribe
   FE->>FB: on("value") {vendorCarrier}/currentLocation/{vendorDriver}
-  FB-->>FE: location → 🚚 marker
+  FB-->>FE: location payload → 🚚 marker
 ```
 
 ---
 
-## 1. Resolve vendor carrier+driver (via CPA)
+## 1. Resolve vendor carrier+driver (via Customer Public API)
 
-`portpro-backend/server/modules/tms/tms-controller.js getLoadFirebaseInstances:11824`
+**Hop chain:** Broker FE (`portpro-frontends`) → Broker BE (`portpro-backend`) → Customer Public API (`portpro-public-api`, `PORTPRO_CONNECT_URL`) → Drayos BE (`portpro-backend · customer-api`).
+
+**Broker BE** — `portpro-backend/server/modules/tms/tms-controller.js getLoadFirebaseInstances:11824`
 ```js
 isDrayosDestination = drayosCarrier.connectDestination === DRAYOS;  // FALSE (connected)
 // → connectMapper branch
 CPAHookCall({
   url: "v1/broker/load-firebase-instances",
   body: { tenderRefToRefNumberMapper: connectMapper },
-  isPortproConnect: true,                       // hop to vendor instance
+  isPortproConnect: true,                       // → baseUrl = PORTPRO_CONNECT_URL
 });
 // returns [{ driver, carrierId }] in VENDOR id-space
 ```
-Vendor handler: `customer-api-controller.js getDrayosFirebaseInstances` (route `/broker/get-drayos-firebase-instances:1252`, auth `connect-x-api-key`).
+
+**The hop target** — `portpro-backend/server/modules/customer-api/customer-api-service.js:210`
+```js
+const CPAHookCall = async ({ method, url, body, query, isPortproConnect = false }) => {
+  const baseUrl = isPortproConnect
+    ? process.env.PORTPRO_CONNECT_URL           // ← Customer Public API (portpro-public-api)
+    : (process.env.CUSTOMER_WEBHOOK_URL ?? '').split('v1')[0];
+  // → `${baseUrl}v1/broker/load-firebase-instances`
+};
+```
+
+**Drayos/Vendor BE handler** — `customer-api-controller.js getDrayosFirebaseInstances` (route `/broker/get-drayos-firebase-instances:1252`, auth `connect-x-api-key`). Resolves the vendor's own load → `{driver, carrierId}`.
 
 FE stores:
 ```js
