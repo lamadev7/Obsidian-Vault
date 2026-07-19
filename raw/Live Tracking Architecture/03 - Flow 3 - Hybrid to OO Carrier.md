@@ -40,6 +40,50 @@ flowchart LR
 
 ---
 
+## Detailed flow — both paths, with the Drayos-BE module
+
+Same `portpro-backend` deployment plays **both** roles. Driver-resolve = **in-process** function call into the `customer-api` module; config = **HTTP loopback** into the same `customer-api` module.
+
+```mermaid
+flowchart LR
+  subgraph FEG["🖥️ portpro-frontends"]
+    ELD["EachLiveDriverWithoutELD.js"]
+    LL["LoadList.js<br/>getActiveContainersFirebaseRefs()"]
+    SP["useContainersTrackingSidePanel.js:159<br/>fetchDrayosFirebaseConfig() (containers)"]
+    HOOK["useFirebaseRef.js:25 picker"]
+    CFG["config/index.js instances"]
+  end
+  subgraph BEG["⚙️ portpro-backend · tms module (Hybrid BE)"]
+    TMS1["tms-controller.js:11824<br/>getLoadFirebaseInstances (localMapper)"]
+    TMS2["tms-controller.js:11915<br/>getDrayosFirebaseConfig"]
+    SVC["customer-api-service.js:210<br/>CPAHookCall(isPortproConnect)"]
+  end
+  subgraph DEG["🏢 portpro-backend · customer-api module (Drayos BE — SAME deployment)"]
+    RESC["customer-api-controller.js:483<br/>resolveDrayosFirebaseInstances()"]
+    CTRL["customer-api-controller.js:588<br/>getDrayosFirebaseConfig → getFirebaseConfig() = MAIN"]
+  end
+  FBm[("🔥 driver-location-portpro (MOBILE)<br/>where O/O writes")]
+  FBx[("🔥 portpro-294915 (MAIN)<br/>empty for this node")]
+
+  LL -->|"1 · GET tms/load-firebase-instances"| TMS1
+  TMS1 ==>|"2 · in-process call (NO HTTP)"| RESC
+  RESC -.->|"3 · [{driver, carrierId}] local ids"| LL
+
+  SP -->|"5 · GET tms/getDrayosFirebaseConfig (containers ONLY)"| TMS2 --> SVC
+  SVC -->|"6 · HTTP connectUrl||PORTPRO_CONNECT_URL<br/>v1/broker/get-drayos-firebase-config (loops to self)"| CTRL
+  CTRL -.->|"7 · config = MAIN ⚠️"| SP
+
+  ELD --> HOOK --> CFG
+  CFG -->|"3a firebaseConfig=null → mobileFirebase"| FBm
+  CFG -->|"3b firebaseConfig=MAIN → getNewFirebaseInstanceByConfig"| FBx
+  FBm -.->|"✅ marker"| ELD
+  FBx -.->|"❌ empty"| ELD
+```
+
+> `==>` thick edge = in-process function call (driver-resolve, no network). Thin `-->` = HTTP. The Drayos-BE `customer-api` module is hit **both** ways — the config HTTP loopback is what returns MAIN.
+
+---
+
 ## WRITE half — O/O app (`owner-operator-mobile`)
 
 ### Pipe A — Firebase (no bearing)
