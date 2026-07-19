@@ -132,35 +132,77 @@ flowchart LR
 
 ---
 
-## READ half — the surface split
+## READ half — two pages, two outcomes
 
-`EachLiveDriverWithoutELD.js:207` — namespace resolves the same for both surfaces:
+Both pages call the same `EachLiveDriverWithoutELD.js:207` and resolve the **same namespace** `{ooCarrier}/currentLocation/{ooDriver}`. They differ only in **which `firebaseConfig` reaches the picker** — and that decides which Firebase DB is read.
+
 ```js
+// EachLiveDriverWithoutELD.js:207 — identical on both pages
 const carrier = brokerCarrierDriverIdMapper[driver._id];   // ooCarrier (local resolve)
 if (_isBrokerContainerTrackingEnabled && carrier)
   namespace = `${ooCarrier}/currentLocation/${ooDriver}`;
 const ref = getFirebaseRefByNameSpace({ overrideNamespace: namespace, firebaseConfig, isMobile: true });
 ```
 
-**Only `firebaseConfig` differs — and that decides everything:**
+---
+
+### 📄 Page 1 — Tracking › Containers  (`/tracking/containers`)  →  ❌ no marker (3b)
+
+This page **fetches** a `firebaseConfig` (= MAIN) and passes it down. Picker `:25` lets it win → reads the wrong DB.
 
 ```mermaid
 flowchart TD
-  N["EachLiveDriverWithoutELD.js:212<br/>namespace {ooCarrier}/currentLocation/{ooDriver}"] --> Q{"useFirebaseRef.js<br/>firebaseConfig set?"}
-  Q -->|"3a · LoadTrackingHistory/index.js:32<br/>firebaseConfig = null"| A["picker :34 isMobile<br/>config/index.js → mobileFirebase"]
-  Q -->|"3b · useContainersTrackingSidePanel.js:159<br/>getDrayosFirebaseConfig = MAIN"| B["picker :25 firebaseConfig wins<br/>config/index.js → getNewFirebaseInstanceByConfig(MAIN)"]
-  A --> AR[("🔥 driver-location-portpro<br/>= where O/O writes")]
-  B --> BR[("🔥 portpro-294915<br/>MAIN — empty for this node")]
-  AR --> OK(("✅ marker shows"))
-  BR --> BAD(("❌ no marker"))
+  P["/tracking/containers<br/>TrackingContainersPage.js:531<br/>&lt;LiveContainerMarkersList /&gt;"]
+  SP["useContainersTrackingSidePanel.js"]
+  MAP["...:453  brokerCarrierDriverIdMapper[ooDriver] = ooCarrier"]
+  CFG["...:159  fetchDrayosFirebaseConfig()<br/>→ getDrayosFirebaseConfig = MAIN"]
+  LCM["LiveContainerMarkersList.js:184<br/>firebaseConfig = stateDriver.firebaseConfig (= MAIN)"]
+  ELD["EachLiveDriverWithoutELD.js:212<br/>namespace {ooCarrier}/currentLocation/{ooDriver}"]
+  PICK["useFirebaseRef.js:25<br/>firebaseConfig SET → getNewFirebaseInstanceByConfig(MAIN)"]
+  FBx[("🔥 portpro-294915 (MAIN)<br/>empty for this node")]
+  X(("❌ no marker"))
+
+  P --> SP
+  SP --> MAP --> ELD
+  SP --> CFG --> LCM --> ELD
+  ELD --> PICK --> FBx --> X
 ```
 
-| | 3a — Load-info tab | 3b — Containers page |
-|--|--------------------|----------------------|
-| `firebaseConfig` | `null` (`LoadTrackingHistory:32`) | `getDrayosFirebaseConfig` = **MAIN** |
-| picker | `:34 isMobile` → mobileFirebase | `:25 firebaseConfig` → MAIN |
-| reads | `driver-location-portpro` ✅ | `portpro-294915` ❌ |
-| result | marker shows | **no marker** |
+---
+
+### 📄 Page 2 — Load info Modal › Tracking tab  (`LoadTrackingHistory`)  →  ✅ marker (3a)
+
+This page **never fetches** a config → `firebaseConfig` stays `null` → picker falls to `isMobile` → correct DB.
+
+```mermaid
+flowchart TD
+  P["Load info Modal → Tracking tab<br/>LoadTrackingHistory/index.js:60<br/>&lt;LiveTrucksMarkers /&gt;"]
+  CFG["index.js:32<br/>firebaseConfig = stateDriver?.firebaseConfig ?? null<br/>(no fetchDrayosFirebaseConfig here → NULL)"]
+  LL["LoadList.js:132<br/>brokerCarrierDriverIdMapper[ooDriver] = ooCarrier"]
+  ELD["EachLiveDriverWithoutELD.js:212<br/>namespace {ooCarrier}/currentLocation/{ooDriver}"]
+  PICK["useFirebaseRef.js:34<br/>firebaseConfig null → isMobile → mobileFirebase"]
+  FBm[("🔥 driver-location-portpro (MOBILE)<br/>where O/O writes")]
+  OK(("✅ marker shows"))
+
+  P --> CFG --> ELD
+  LL --> ELD
+  ELD --> PICK --> FBm --> OK
+```
+
+---
+
+### Side-by-side
+
+| | 📄 Page 1 · Containers | 📄 Page 2 · Load info modal |
+|--|------------------------|-----------------------------|
+| entry | `TrackingContainersPage.js:531` | `LoadTrackingHistory/index.js:60` |
+| markers list | `LiveContainerMarkersList` | `LiveTrucksMarkersList` |
+| mapper source | `useContainersTrackingSidePanel:453` | `LoadList.js:132` |
+| `firebaseConfig` | `getDrayosFirebaseConfig` = **MAIN** | `null` (never fetched) |
+| picker branch | `:25` firebaseConfig wins | `:34` isMobile |
+| reads DB | `portpro-294915` (MAIN) | `driver-location-portpro` (MOBILE) |
+| O/O GPS is in | MOBILE | MOBILE |
+| **result** | ❌ **no marker** | ✅ **marker shows** |
 
 ---
 
